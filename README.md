@@ -1,10 +1,14 @@
-# Task Manager API
+# TaskManager
 
-Простое REST API для управления задачами на Go + Gin + GORM + PostgreSQL.
+Fullstack-приложение для управления задачами.
+
+## 📁 Структура проекта
+- **frontend/** — React + Vite + Tailwind CSS
+- **backend/** — Go (REST API, работа с БД, middleware и т.д.)
 
 ## 🚀 Запуск
 
-1. Установить зависимости:
-
+### Backend
 ```bash
-go mod tidy
+cd backend
+go run main.go
