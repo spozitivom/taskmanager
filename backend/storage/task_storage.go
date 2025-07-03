@@ -1,4 +1,3 @@
-// backend/storage/task_storage.go
 package storage
 
 import (
@@ -6,38 +5,70 @@ import (
 	"gorm.io/gorm"
 )
 
+// TaskStorage отвечает за работу с задачами в БД (CRUD)
 type TaskStorage struct {
-	DB *gorm.DB
+	db *gorm.DB
 }
 
+// NewTaskStorage создаёт новый экземпляр хранилища задач
 func NewTaskStorage(db *gorm.DB) *TaskStorage {
-	return &TaskStorage{DB: db}
+	return &TaskStorage{db: db}
 }
 
-func (s *TaskStorage) GetAllTasks(order string) ([]models.Task, error) {
-	var tasks []models.Task
-	if err := s.DB.Order("created_at " + order).Find(&tasks).Error; err != nil {
-		return nil, err
+// GetAllSorted возвращает все задачи, отсортированные по created_at
+func (s *TaskStorage) GetAllSorted(sortOrder string) ([]models.Task, error) {
+	if sortOrder != "asc" && sortOrder != "desc" {
+		sortOrder = "desc"
 	}
-	return tasks, nil
+	var tasks []models.Task
+	err := s.db.Order("created_at " + sortOrder).Find(&tasks).Error
+	return tasks, err
 }
 
-func (s *TaskStorage) CreateTask(task *models.Task) error {
-	return s.DB.Create(task).Error
+// 🔍 GetFiltered — возвращает задачи по фильтрам + сортировке
+func (s *TaskStorage) GetFiltered(sortOrder, status, priority, stage string) ([]models.Task, error) {
+	if sortOrder != "asc" && sortOrder != "desc" {
+		sortOrder = "desc"
+	}
+
+	query := s.db.Model(&models.Task{})
+
+	if status != "" {
+		query = query.Where("status = ?", status)
+	}
+	if priority != "" {
+		query = query.Where("priority = ?", priority)
+	}
+	if stage != "" {
+		query = query.Where("stage = ?", stage)
+	}
+
+	var tasks []models.Task
+	err := query.Order("created_at " + sortOrder).Find(&tasks).Error
+	return tasks, err
 }
 
-func (s *TaskStorage) UpdateTask(task *models.Task) error {
-	return s.DB.Save(task).Error
-}
-
-func (s *TaskStorage) DeleteTask(id int) error {
-	return s.DB.Delete(&models.Task{}, id).Error
-}
-
-func (s *TaskStorage) GetTaskByID(id int) (*models.Task, error) {
+// GetByID возвращает задачу по ID
+func (s *TaskStorage) GetByID(id uint) (*models.Task, error) {
 	var task models.Task
-	if err := s.DB.First(&task, id).Error; err != nil {
+	err := s.db.First(&task, id).Error
+	if err != nil {
 		return nil, err
 	}
 	return &task, nil
+}
+
+// Create сохраняет новую задачу в БД
+func (s *TaskStorage) Create(task *models.Task) error {
+	return s.db.Create(task).Error
+}
+
+// Update сохраняет изменения существующей задачи
+func (s *TaskStorage) Update(task *models.Task) error {
+	return s.db.Save(task).Error
+}
+
+// Delete удаляет задачу по ID
+func (s *TaskStorage) Delete(id uint) error {
+	return s.db.Delete(&models.Task{}, id).Error
 }

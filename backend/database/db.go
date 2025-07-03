@@ -1,4 +1,3 @@
-// backend/database/db.go
 package database
 
 import (
@@ -6,11 +5,11 @@ import (
 	"os"
 
 	"github.com/joho/godotenv"
+	"github.com/spozitivom/taskmanager/models" // подкорректируй путь
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
-// Подключение к БД и возврат *gorm.DB
 func Connect() *gorm.DB {
 	err := godotenv.Load()
 	if err != nil {
@@ -27,5 +26,12 @@ func Connect() *gorm.DB {
 		log.Fatal("❌ Ошибка подключения к БД: ", err)
 	}
 
+	// Авто-миграция моделей
+	err = db.AutoMigrate(&models.Task{})
+	if err != nil {
+		log.Fatal("❌ Ошибка при авто-миграции:", err)
+	}
+
+	log.Println("✅ Подключение к БД установлено, миграция прошла успешно")
 	return db
 }

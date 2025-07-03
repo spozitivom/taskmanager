@@ -1,4 +1,3 @@
-// backend/handlers/task_handler.go
 package handlers
 
 import (
@@ -10,14 +9,16 @@ import (
 	"github.com/spozitivom/taskmanager/services"
 )
 
-type TaskHandler struct {
-	Service *services.TaskService
-}
+// -------------------------------------
+// Конструктор и регистрация маршрутов
+// -------------------------------------
 
-// Регистрирует все маршруты
-func RegisterTaskRoutes(r *gin.Engine, service *services.TaskService) {
-	h := &TaskHandler{Service: service}
-	api := r.Group("/tasks")
+type TaskHandler struct{ Service *services.TaskService }
+
+func NewTaskHandler(s *services.TaskService) *TaskHandler { return &TaskHandler{Service: s} }
+
+func (h *TaskHandler) RegisterRoutes(r *gin.Engine) {
+	api := r.Group("/api/tasks")
 	{
 		api.GET("", h.GetTasks)
 		api.POST("", h.CreateTask)
@@ -26,75 +27,61 @@ func RegisterTaskRoutes(r *gin.Engine, service *services.TaskService) {
 	}
 }
 
-// Получение задач
-func (h *TaskHandler) GetTasks(c *gin.Context) {
-	order := c.DefaultQuery("sort", "desc")
-	if order != "asc" && order != "desc" {
-		order = "desc"
-	}
+// -------------------------------------
+// Handlers
+// -------------------------------------
 
-	tasks, err := h.Service.GetTasks(order)
+// GET /api/tasks?sort=desc&status=todo...
+func (h *TaskHandler) GetTasks(c *gin.Context) {
+	sort := c.DefaultQuery("sort", "desc")
+	status := c.Query("status")
+	prio := c.Query("priority")
+	stage := c.Query("stage")
+
+	tasks, err := h.Service.GetFilteredTasks(sort, status, prio, stage)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка при получении задач"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "can't fetch tasks"})
 		return
 	}
-
 	c.JSON(http.StatusOK, tasks)
 }
 
-// Создание задачи
+// POST /api/tasks
 func (h *TaskHandler) CreateTask(c *gin.Context) {
-	var task models.Task
-	if err := c.ShouldBindJSON(&task); err != nil {
+	var t models.Task
+	if err := c.ShouldBindJSON(&t); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
-	if err := h.Service.CreateTask(&task); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка при создании"})
+	if err := h.Service.CreateTask(&t); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "can't create"})
 		return
 	}
-
-	c.JSON(http.StatusCreated, task)
+	c.JSON(http.StatusCreated, t)
 }
 
-// Обновление задачи
+// PUT /api/tasks/:id
 func (h *TaskHandler) UpdateTask(c *gin.Context) {
-	idStr := c.Param("id")
-	id, err := strconv.Atoi(idStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Неверный ID"})
-		return
-	}
-
-	var input models.Task
-	if err := c.ShouldBindJSON(&input); err != nil {
+	id, _ := strconv.Atoi(c.Param("id"))
+	var in models.Task
+	if err := c.ShouldBindJSON(&in); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
-	updated, err := h.Service.UpdateTask(id, &input)
+	upd, err := h.Service.UpdateTask(uint(id), &in)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Задача не найдена"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 		return
 	}
-
-	c.JSON(http.StatusOK, updated)
+	c.JSON(http.StatusOK, upd)
 }
 
-// Удаление задачи
+// DELETE /api/tasks/:id
 func (h *TaskHandler) DeleteTask(c *gin.Context) {
-	idStr := c.Param("id")
-	id, err := strconv.Atoi(idStr)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Неверный ID"})
+	id, _ := strconv.Atoi(c.Param("id"))
+	if err := h.Service.DeleteTask(uint(id)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "delete failed"})
 		return
 	}
-
-	if err := h.Service.DeleteTask(id); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка при удалении"})
-		return
-	}
-
-	c.Status(http.StatusNoContent)
+	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
