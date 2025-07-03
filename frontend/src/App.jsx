@@ -1,187 +1,90 @@
-import { useState, useEffect } from 'react'
-import './App.css'
+import {useEffect,useState} from 'react'
+import * as api from './api'
 
-function App() {
-  // 🔄 Состояние задач
-  const [tasks, setTasks] = useState([])
+export default function App() {
+  const [tasks,setTasks]=useState([])
+  const [title,setTitle]=useState('')
+  const [sort,setSort]=useState('desc')
+  const [status,setStatus]=useState('')
+  const [priority,setPriority]=useState('')
+  const [stage,setStage]=useState('')
 
-  // 🆕 Состояние новой задачи (input)
-  const [newTask, setNewTask] = useState('')
+  // загрузка при изменении фильтров/сортировки
+  useEffect(()=>{
+    const params = new URLSearchParams()
+    if(sort)     params.append('sort',sort)
+    if(status)   params.append('status',status)
+    if(priority) params.append('priority',priority)
+    if(stage)    params.append('stage',stage)
+    api.getTasks(params.toString())
+       .then(setTasks)
+       .catch(console.error)
+  },[sort,status,priority,stage])
 
-  // ✏️ Для редактирования задач
-  const [editId, setEditId] = useState(null)
-  const [editTitle, setEditTitle] = useState('')
-
-  // 🌍 URL бэкенда (поддерживает переменные окружения)
-  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8081'
-
-  // 🔽 Порядок сортировки: 'desc' (новые сначала) или 'asc' (старые сначала)
-  const [sortOrder, setSortOrder] = useState('desc');
-
-  // ✅ Обработка переключения состояния чекбокса (выполнена / не выполнена)
-  const handleToggleTask = async (id, newChecked) => {
-    try {
-      const response = await fetch(`${apiUrl}/tasks/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ checked: newChecked }),
-      });
-      if (!response.ok) throw new Error('Failed to update task');
-      const updated = await response.json();
-      setTasks(prev => prev.map(t => (t.id === id ? updated : t)));
-    } catch (err) {
-      console.error('Ошибка при обновлении задачи:', err);
-    }
-  };
-
-  // 💾 Сохранение отредактированного названия
-  const handleEditSave = async (id) => {
-    try {
-      const response = await fetch(`${apiUrl}/tasks/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: editTitle }),
-      });
-      if (!response.ok) throw new Error('Ошибка при редактировании');
-      const updated = await response.json();
-      setTasks(prev => prev.map(t => t.id === id ? updated : t));
-      setEditId(null);
-      setEditTitle('');
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  // 📥 Загрузка задач с сортировкой (выполняется при монтировании и при смене sortOrder)
-  useEffect(() => {
-    fetch(`${apiUrl}/tasks?sort=${sortOrder}`)
-      .then(res => res.json())
-      .then(setTasks)
-      .catch(err => console.error("Ошибка при получении задач:", err));
-  }, [sortOrder]);
-
-  // ➕ Добавление новой задачи
-  const handleAddTask = () => {
-    if (!newTask.trim()) return;
-    fetch(`${apiUrl}/tasks`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: newTask })
-    })
-      .then(res => res.json())
-      .then(task => {
-        setTasks(prev => [task, ...prev])
-        setNewTask('')
-      })
-      .catch(err => console.error("Ошибка при добавлении:", err))
+  const addTask=()=>{
+    if(!title.trim()) return
+    api.createTask({title})
+      .then(t=>{setTasks(prev=>[t,...prev]);setTitle('')})
+      .catch(console.error)
   }
 
-  // ❌ Удаление задачи
-  const handleDelete = (id) => {
-    fetch(`${apiUrl}/tasks/${id}`, {
-      method: 'DELETE'
-    })
-      .then(() => {
-        setTasks(prev => prev.filter(task => task.id !== id))
-      })
-      .catch(err => console.error("Ошибка при удалении:", err))
-  }
+  const toggle= t =>
+    api.updateTask(t.id,{checked:!t.checked})
+       .then(u=>setTasks(prev=>prev.map(x=>x.id===u.id?u:x)))
+
+  const remove = id =>
+    api.deleteTask(id)
+       .then(()=>setTasks(prev=>prev.filter(x=>x.id!==id)))
 
   return (
-    <div className="p-6 max-w-2xl mx-auto">
-      <h1 className="text-2xl font-bold mb-4 text-blue-600 text-center">Список задач</h1>
+    <div className="mx-auto max-w-3xl p-6">
+      <h1 className="text-2xl font-bold mb-4">Task Manager</h1>
 
-      {/* 🔹 Блок добавления новой задачи */}
-      <div className="flex mb-6 gap-2">
-        <input
-          type="text"
-          className="flex-1 p-2 border rounded"
-          placeholder="Новая задача"
-          value={newTask}
-          onChange={(e) => setNewTask(e.target.value)}
-        />
-        <button
-          onClick={handleAddTask}
-          className="bg-blue-600 text-white px-4 rounded hover:bg-blue-700"
-        >
-          Добавить
-        </button>
-      </div>
-
-      {/* 🔽 Селектор сортировки задач */}
-      <div className="mb-4 text-right">
-        <label className="mr-2">Сортировка:</label>
-        <select
-          value={sortOrder}
-          onChange={e => setSortOrder(e.target.value)}
-          className="border p-1 rounded"
-        >
-          <option value="desc">Сначала новые</option>
-          <option value="asc">Сначала старые</option>
+      {/* Фильтры */}
+      <div className="flex flex-wrap gap-2 mb-4">
+        <select value={sort} onChange={e=>setSort(e.target.value)} className="border p-1">
+          <option value="desc">Новые → старые</option>
+          <option value="asc">Старые → новые</option>
         </select>
+
+        <select value={status} onChange={e=>setStatus(e.target.value)} className="border p-1">
+          <option value="">Все статусы</option>
+          <option value="todo">todo</option>
+          <option value="in_progress">in_progress</option>
+          <option value="done">done</option>
+        </select>
+
+        <select value={priority} onChange={e=>setPriority(e.target.value)} className="border p-1">
+          <option value="">Любой приоритет</option>
+          <option value="low">low</option>
+          <option value="medium">medium</option>
+          <option value="high">high</option>
+        </select>
+
+        <input value={stage} onChange={e=>setStage(e.target.value)}
+               placeholder="Этап (Фронтенд…)"
+               className="border p-1 flex-1"/>
       </div>
 
-      {/* 📋 Список задач */}
+      {/* Добавить */}
+      <div className="flex gap-2 mb-6">
+        <input className="flex-1 border p-2" value={title} onChange={e=>setTitle(e.target.value)} placeholder="Новая задача"/>
+        <button onClick={addTask} className="bg-blue-600 text-white px-4 rounded">Добавить</button>
+      </div>
+
+      {/* Список */}
       <ul className="space-y-2">
-        {tasks.map(task => (
-          <li key={task.id} className="p-2 border rounded shadow flex justify-between items-center">
-            <span className="flex flex-col w-full">
-              <span className="flex items-center">
-                <input
-                  type="checkbox"
-                  checked={task.checked}
-                  onChange={() => handleToggleTask(task.id, !task.checked)}
-                  className="mr-2"
-                />
-
-                {editId === task.id ? (
-                  <>
-                    <input
-                      type="text"
-                      value={editTitle}
-                      onChange={e => setEditTitle(e.target.value)}
-                      className="flex-1 border p-1 mr-2"
-                    />
-                    <button
-                      onClick={() => handleEditSave(task.id)}
-                      className="text-green-600 hover:text-green-800 mr-2"
-                    >
-                      💾
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <span className="flex-1">{task.title}</span>
-                    <button
-                      onClick={() => {
-                        setEditId(task.id)
-                        setEditTitle(task.title)
-                      }}
-                      className="text-yellow-600 hover:text-yellow-800 mr-2"
-                    >
-                      ✏️
-                    </button>
-                  </>
-                )}
-              </span>
-              {/* 🕒 Дата создания */}
-              <span className="text-sm text-gray-500 ml-6">
-                {new Date(task.created_at).toLocaleString()}
-              </span>
+        {tasks.map(t=>(
+          <li key={t.id} className="border p-2 rounded flex justify-between items-center">
+            <span>
+              <input type="checkbox" checked={t.checked} onChange={()=>toggle(t)} className="mr-2"/>
+              {t.title}
+              <span className="text-xs text-gray-500 ml-2">{new Date(t.created_at).toLocaleDateString()}</span>
             </span>
-
-            {/* 🗑 Кнопка удаления */}
-            <button
-              onClick={() => handleDelete(task.id)}
-              className="text-red-600 hover:text-red-800 ml-2"
-            >
-              🗑
-            </button>
+            <button onClick={()=>remove(t.id)} className="text-red-600">🗑</button>
           </li>
         ))}
       </ul>
     </div>
   )
 }
-
-export default App

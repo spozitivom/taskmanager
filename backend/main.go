@@ -1,10 +1,13 @@
-// backend/main.go
 package main
 
 import (
 	"log"
+	"os"
 
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
+
 	"github.com/spozitivom/taskmanager/database"
 	"github.com/spozitivom/taskmanager/handlers"
 	"github.com/spozitivom/taskmanager/services"
@@ -12,17 +15,36 @@ import (
 )
 
 func main() {
-	// Получаем подключение к базе данных
+	// 🔧 Загружаем переменные окружения из .env
+	if err := godotenv.Load(); err != nil {
+		log.Println("⚠️ .env файл не найден, продолжаем с переменными окружения")
+	}
+
+	// 📦 Подключаем базу данных
 	db := database.Connect()
 
-	// Инициализируем слои приложения
+	// 🧱 Инициализируем уровни приложения:
+	// Хранилище → Сервис → Обработчик
 	taskStorage := storage.NewTaskStorage(db)
 	taskService := services.NewTaskService(taskStorage)
+	taskHandler := handlers.NewTaskHandler(taskService)
 
-	// Настраиваем маршруты и запускаем сервер
+	// 🌐 Создаём Gin роутер
 	router := gin.Default()
-	handlers.RegisterTaskRoutes(router, taskService)
 
-	log.Println("🚀 Сервер запущен на http://localhost:8081")
-	router.Run(":8081")
+	// ✅ Включаем CORS (для локальной разработки разрешаем всё)
+	router.Use(cors.Default())
+
+	// 🧭 Регистрируем маршруты задач
+	taskHandler.RegisterRoutes(router)
+
+	// 🚀 Стартуем сервер
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8081" // По умолчанию
+	}
+	log.Printf("🚀 Сервер запущен на http://localhost:%s", port)
+	if err := router.Run(":" + port); err != nil {
+		log.Fatalf("❌ Ошибка запуска сервера: %v", err)
+	}
 }
