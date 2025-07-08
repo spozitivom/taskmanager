@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/spozitivom/taskmanager/middleware"
 	"github.com/spozitivom/taskmanager/models"
 	"github.com/spozitivom/taskmanager/services"
 )
@@ -18,13 +19,15 @@ type TaskHandler struct{ Service *services.TaskService }
 func NewTaskHandler(s *services.TaskService) *TaskHandler { return &TaskHandler{Service: s} }
 
 func (h *TaskHandler) RegisterRoutes(r *gin.Engine) {
-	api := r.Group("/api/tasks")
-	{
-		api.GET("", h.GetTasks)
-		api.POST("", h.CreateTask)
-		api.PUT("/:id", h.UpdateTask)
-		api.DELETE("/:id", h.DeleteTask)
-	}
+	api := r.Group("/api", middleware.Auth())
+	api.GET("/tasks", h.GetTasks)
+	api.POST("/tasks", h.CreateTask)
+	api.PUT("/tasks/:id", h.UpdateTask)
+	api.DELETE("/tasks/:id", h.DeleteTask)
+}
+
+func GetTasks(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"message": "Tasks fetched successfully"})
 }
 
 // -------------------------------------

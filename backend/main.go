@@ -10,6 +10,7 @@ import (
 
 	"github.com/spozitivom/taskmanager/database"
 	"github.com/spozitivom/taskmanager/handlers"
+	"github.com/spozitivom/taskmanager/routes"
 	"github.com/spozitivom/taskmanager/services"
 	"github.com/spozitivom/taskmanager/storage"
 )
@@ -37,6 +38,9 @@ func main() {
 
 	// 🧭 Регистрируем маршруты задач
 	taskHandler.RegisterRoutes(router)
+
+	// 🔐 Регистрируем маршруты авторизации
+	routes.SetupRoutes(router, db)
 
 	// 🚀 Стартуем сервер
 	port := os.Getenv("PORT")
