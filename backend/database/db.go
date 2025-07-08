@@ -27,7 +27,7 @@ func Connect() *gorm.DB {
 	}
 
 	// Авто-миграция моделей
-	err = db.AutoMigrate(&models.Task{})
+	err = db.AutoMigrate(&models.Task{}, &models.User{})
 	if err != nil {
 		log.Fatal("❌ Ошибка при авто-миграции:", err)
 	}
