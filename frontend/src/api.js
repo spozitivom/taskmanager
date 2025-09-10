@@ -1,29 +1,29 @@
 /* ---------------------------------------------------
- *  Унифицированный клиент для REST‑API
+ *  Унифицированный клиент для REST-API
  *  Все запросы идут на /api/**  – прокси Vite перенаправит на backend
  * --------------------------------------------------- */
 
-const API = import.meta.env.VITE_API_URL || '/api';
+const API = import.meta.env.VITE_API_URL || "/api";
 
 /**
- * Базовый helper.
- *  – пробрасывает headers, method, body
- *  – автоматически добавляет JWT из localStorage
- *  – бросает ошибку, если код ответа НЕ 2xx
- *  – безопасно обрабатывает ответы 204/пустое тело
+ * Базовый helper для запросов
+ * -------------------------------------
+ *  – добавляет Content-Type: application/json
+ *  – автоматически подставляет JWT из localStorage
+ *  – выбрасывает ошибку, если код ответа НЕ 2xx
+ *  – безопасно обрабатывает пустые ответы (204)
  */
 export async function request(url, options = {}) {
-  // Берём токен после логина
-  const token = localStorage.getItem('token');
+  const token = localStorage.getItem("token");
 
   const headers = {
-    'Content-Type': 'application/json',
+    "Content-Type": "application/json",
     ...(options.headers || {}),
   };
 
-  // Если токен есть — добавляем Authorization
+  // Если токен есть → добавляем Authorization
   if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
+    headers["Authorization"] = `Bearer ${token}`;
   }
 
   const res = await fetch(`${API}${url}`, {
@@ -31,9 +31,9 @@ export async function request(url, options = {}) {
     ...options,
   });
 
-  // Если статус ответа не 2xx — выбрасываем ошибку
+  // Если статус ответа не 2xx → выбрасываем ошибку
   if (!res.ok) {
-    throw new Error(await res.text() || `HTTP ${res.status}`);
+    throw new Error((await res.text()) || `HTTP ${res.status}`);
   }
 
   // Если тело пустое → вернём null
@@ -41,24 +41,45 @@ export async function request(url, options = {}) {
   return txt ? JSON.parse(txt) : null;
 }
 
-/* ---------- CRUD ---------- */
+/* ----------  CRUD Задач ---------- */
 
-// Получить список задач с фильтрами (опционально)
-export const getTasks   = params        => request(`/tasks${params ? `?${params}` : ''}`);
+// 📌 Получить список задач с фильтрами (?sort=asc&status=done...)
+export const getTasks = (params) =>
+  request(`/tasks${params ? `?${params}` : ""}`);
 
-// Создать новую задачу
-export const createTask = data          => request('/tasks',       { method: 'POST', body: JSON.stringify(data) });
+// 📌 Создать новую задачу
+export const createTask = (data) =>
+  request("/tasks", { method: "POST", body: JSON.stringify(data) });
 
-// Обновить задачу
-export const updateTask = (id, data)    => request(`/tasks/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+// 📌 Обновить задачу (например, stage → "done")
+export const updateTask = (id, data) =>
+  request(`/tasks/${id}`, { method: "PUT", body: JSON.stringify(data) });
 
-// Удалить задачу
-export const deleteTask = id            => request(`/tasks/${id}`, { method: 'DELETE' });
+// 📌 Удалить задачу
+export const deleteTask = (id) =>
+  request(`/tasks/${id}`, { method: "DELETE" });
 
-// Авторизация (логин)
+/* ----------  Аутентификация ---------- */
+
+// 📌 Вход (логин) → сохраняет токен
 export const login = async (username, password) => {
-  const res = await request('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) });
-  localStorage.setItem('token', res.token); // сохраняем токен для всех будущих запросов
+  const res = await request("/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ username, password }),
+  });
+  localStorage.setItem("token", res.token);
   return res;
 };
 
+// 📌 Регистрация (по желанию, если есть эндпоинт)
+export const register = async (username, password) => {
+  return request("/auth/register", {
+    method: "POST",
+    body: JSON.stringify({ username, password }),
+  });
+};
+
+// 📌 Выход (очистка токена)
+export const logout = () => {
+  localStorage.removeItem("token");
+};
