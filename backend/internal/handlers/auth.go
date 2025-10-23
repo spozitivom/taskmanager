@@ -5,8 +5,8 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/spozitivom/taskmanager/models"
-	"github.com/spozitivom/taskmanager/services"
+	"github.com/spozitivom/taskmanager/internal/models"
+	"github.com/spozitivom/taskmanager/internal/services"
 	"gorm.io/gorm"
 )
 

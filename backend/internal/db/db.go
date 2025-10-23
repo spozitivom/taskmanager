@@ -5,7 +5,7 @@ import (
 	"os"
 
 	"github.com/joho/godotenv"
-	"github.com/spozitivom/taskmanager/models" // подкорректируй путь
+	"github.com/spozitivom/taskmanager/internal/models"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
