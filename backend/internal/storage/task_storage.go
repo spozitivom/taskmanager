@@ -1,7 +1,7 @@
 package storage
 
 import (
-	"github.com/spozitivom/taskmanager/models"
+	"github.com/spozitivom/taskmanager/internal/models"
 	"gorm.io/gorm"
 )
 

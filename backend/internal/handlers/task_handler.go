@@ -5,9 +5,9 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
-	"github.com/spozitivom/taskmanager/middleware"
-	"github.com/spozitivom/taskmanager/models"
-	"github.com/spozitivom/taskmanager/services"
+	"github.com/spozitivom/taskmanager/internal/middleware"
+	"github.com/spozitivom/taskmanager/internal/models"
+	"github.com/spozitivom/taskmanager/internal/services"
 )
 
 // -------------------------------------

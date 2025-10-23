@@ -1,8 +1,8 @@
 package services
 
 import (
-	"github.com/spozitivom/taskmanager/models"
-	"github.com/spozitivom/taskmanager/storage"
+	"github.com/spozitivom/taskmanager/internal/models"
+	"github.com/spozitivom/taskmanager/internal/storage"
 )
 
 // TaskService реализует бизнес-логику для задач.

@@ -2,8 +2,8 @@ package routes
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/spozitivom/taskmanager/handlers"
-	"github.com/spozitivom/taskmanager/middleware"
+	"github.com/spozitivom/taskmanager/internal/handlers"
+	"github.com/spozitivom/taskmanager/internal/middleware"
 	"gorm.io/gorm"
 )
 
