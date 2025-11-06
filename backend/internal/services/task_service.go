@@ -1,6 +1,9 @@
 package services
 
 import (
+	"errors"
+	"strings"
+
 	"github.com/spozitivom/taskmanager/internal/models"
 	"github.com/spozitivom/taskmanager/internal/storage"
 )
@@ -10,17 +13,17 @@ type TaskService struct {
 	storage *storage.TaskStorage
 }
 
-// NewTaskService создаёт новый экземпляр TaskService
+// NewTaskService создаёт новый экземпляр TaskService.
 func NewTaskService(storage *storage.TaskStorage) *TaskService {
 	return &TaskService{storage: storage}
 }
 
-// GetTasks возвращает список всех задач, отсортированных по дате создания.
+// GetTasks возвращает список всех задач, с сортировкой по дате создания.
 func (s *TaskService) GetTasks(sortOrder string) ([]models.Task, error) {
 	return s.storage.GetAllSorted(sortOrder)
 }
 
-// 🔍 GetFilteredTasks — получить задачи с учётом фильтров
+// GetFilteredTasks — получить задачи с учётом фильтров.
 func (s *TaskService) GetFilteredTasks(sortOrder, status, priority, stage string) ([]models.Task, error) {
 	return s.storage.GetFiltered(sortOrder, status, priority, stage)
 }
@@ -31,39 +34,50 @@ func (s *TaskService) GetTaskByID(id uint) (*models.Task, error) {
 }
 
 // CreateTask сохраняет новую задачу в базе данных.
+// Здесь же можно мягко нормализовать вход и применить дефолты (на случай, если фронт их не прислал).
 func (s *TaskService) CreateTask(task *models.Task) error {
+	task.Title = strings.TrimSpace(task.Title)
+	if task.Title == "" {
+		return errors.New("title is required")
+	}
+	if task.Status == "" {
+		task.Status = models.StatusTodo
+	}
+	if task.Priority == "" {
+		task.Priority = models.PriorityMedium
+	}
+	if task.Stage == "" {
+		task.Stage = models.StageDefault
+	}
+	// Checked по умолчанию false — задаётся через gorm default, оставляем как есть.
 	return s.storage.Create(task)
 }
 
-// UpdateTask обновляет существующую задачу по ID.
-func (s *TaskService) UpdateTask(id uint, input *models.Task) (*models.Task, error) {
+// PatchTask частично обновляет существующую задачу по ID.
+// Меняем только те поля, которые действительно пришли (указатели != nil) —
+// это решает проблему, когда Checked принудительно сбрасывался в false.
+func (s *TaskService) PatchTask(id uint, patch models.TaskPatch) (*models.Task, error) {
 	task, err := s.storage.GetByID(id)
 	if err != nil {
 		return nil, err
 	}
 
-	// Обновляем только непустые поля (можно сделать через вспомогательную функцию или вручную)
-	if input.Title != "" {
-		task.Title = input.Title
+	// Доп. нормализация: можно триммить строки, если они пришли.
+	if patch.Title != nil {
+		t := strings.TrimSpace(*patch.Title)
+		patch.Title = &t
 	}
-	task.Checked = input.Checked // логическое поле можно просто обновлять
-	if input.Description != "" {
-		task.Description = input.Description
-	}
-	if input.Status != "" {
-		task.Status = input.Status
-	}
-	if input.Priority != "" {
-		task.Priority = input.Priority
-	}
-	if input.Stage != "" {
-		task.Stage = input.Stage
+
+	patch.ApplyTo(task)
+
+	// Мини-валидация после применения патча (опционально, но полезно).
+	if strings.TrimSpace(task.Title) == "" {
+		return nil, errors.New("title cannot be empty")
 	}
 
 	if err := s.storage.Update(task); err != nil {
 		return nil, err
 	}
-
 	return task, nil
 }
 

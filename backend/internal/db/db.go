@@ -1,37 +1,57 @@
-package database
+package db
 
 import (
+	"fmt"
 	"log"
 	"os"
+	"strings"
+	"time"
 
-	"github.com/joho/godotenv"
 	"github.com/spozitivom/taskmanager/internal/models"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 func Connect() *gorm.DB {
-	err := godotenv.Load()
+	dsn := os.Getenv("DB_DSN")
+	if strings.TrimSpace(dsn) == "" {
+		host := os.Getenv("DB_HOST")
+		port := os.Getenv("DB_PORT")
+		user := os.Getenv("DB_USER")
+		pass := os.Getenv("DB_PASS")
+		name := os.Getenv("DB_NAME")
+		ssl := os.Getenv("DB_SSLMODE")
+		if ssl == "" {
+			ssl = "disable"
+		}
+		dsn = fmt.Sprintf(
+			"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s TimeZone=UTC",
+			host, port, user, pass, name, ssl,
+		)
+	}
+
+	cfg := &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Warn),
+	}
+	db, err := gorm.Open(postgres.Open(dsn), cfg)
 	if err != nil {
-		log.Println("⚠️ .env файл не найден, продолжаем...")
+		log.Fatalf("DB connect error: %v", err)
 	}
 
-	dsn := os.Getenv("DATABASE_URL")
-	if dsn == "" {
-		log.Fatal("❌ DATABASE_URL не задана в переменных окружения")
+	// миграции схемы
+	if err := db.AutoMigrate(
+		&models.User{},
+		&models.Task{},
+	); err != nil {
+		log.Fatalf("AutoMigrate error: %v", err)
 	}
 
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
-	if err != nil {
-		log.Fatal("❌ Ошибка подключения к БД: ", err)
-	}
+	// пул соединений
+	sqlDB, _ := db.DB()
+	sqlDB.SetMaxIdleConns(5)
+	sqlDB.SetMaxOpenConns(10)
+	sqlDB.SetConnMaxLifetime(30 * time.Minute)
 
-	// Авто-миграция моделей
-	err = db.AutoMigrate(&models.Task{}, &models.User{})
-	if err != nil {
-		log.Fatal("❌ Ошибка при авто-миграции:", err)
-	}
-
-	log.Println("✅ Подключение к БД установлено, миграция прошла успешно")
 	return db
 }

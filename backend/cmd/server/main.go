@@ -7,36 +7,43 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
-	dbPkg "github.com/spozitivom/taskmanager/internal/db"
+
+	appdb "github.com/spozitivom/taskmanager/internal/db"
 	"github.com/spozitivom/taskmanager/internal/handlers"
-	"github.com/spozitivom/taskmanager/internal/routes"
+	"github.com/spozitivom/taskmanager/internal/middleware"
 	"github.com/spozitivom/taskmanager/internal/services"
 	"github.com/spozitivom/taskmanager/internal/storage"
 )
 
 func main() {
-	// 🔧 Загружаем переменные окружения из .env
+	// Загружаем переменные окружения из .env (если файл есть).
 	if err := godotenv.Load(); err != nil {
 		log.Println("⚠️ .env файл не найден, продолжаем с переменными окружения")
 	}
 
-	// 📦 Подключаем базу данных
-	dbConn := dbPkg.Connect()
+	// Подключаемся к БД и инициализируем слои приложения.
+	db := appdb.Connect()
 
-	// 🧱 Инициализируем уровни приложения
-	taskStorage := storage.NewTaskStorage(dbConn)
+	taskStorage := storage.NewTaskStorage(db)
 	taskService := services.NewTaskService(taskStorage)
 	taskHandler := handlers.NewTaskHandler(taskService)
 
-	// 🌐 Создаём Gin роутер
+	authHandler := &handlers.AuthHandler{DB: db}
+
+	// Готовим Gin.
 	router := gin.Default()
 	router.Use(cors.Default())
+	router.Use(middleware.Recover())
+	router.Use(middleware.ForceUTF8())
 
-	// 🧭 Регистрируем маршруты
+	// Публичные эндпоинты авторизации.
+	router.POST("/api/auth/register", authHandler.Register)
+	router.POST("/api/auth/login", authHandler.Login)
+
+	// Защищённые задачи.
 	taskHandler.RegisterRoutes(router)
-	routes.SetupRoutes(router, dbConn)
 
-	// 🚀 Запускаем сервер
+	// Запускаем сервер.
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8081"
