@@ -51,9 +51,9 @@ export const getTasks = (params) =>
 export const createTask = (data) =>
   request("/tasks", { method: "POST", body: JSON.stringify(data) });
 
-// 📌 Обновить задачу (например, stage → "done")
+// 📌 Обновить задачу (например, status → "done")
 export const updateTask = (id, data) =>
-  request(`/tasks/${id}`, { method: "PUT", body: JSON.stringify(data) });
+  request(`/tasks/${id}`, { method: "PATCH", body: JSON.stringify(data) });
 
 // 📌 Удалить задачу
 export const deleteTask = (id) =>
@@ -62,20 +62,43 @@ export const deleteTask = (id) =>
 /* ----------  Аутентификация ---------- */
 
 // 📌 Вход (логин) → сохраняет токен
-export const login = async (username, password) => {
+export const login = async (identifier, password) => {
+  const trimmed = (identifier || "").trim().toLowerCase();
+  const payload = { password };
+
+  if (!trimmed) {
+    throw new Error("Введите email или имя пользователя");
+  }
+
+  if (trimmed.includes("@")) {
+    payload.email = trimmed;
+  } else {
+    payload.username = trimmed;
+  }
+
   const res = await request("/auth/login", {
     method: "POST",
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify(payload),
   });
   localStorage.setItem("token", res.token);
   return res;
 };
 
 // 📌 Регистрация (по желанию, если есть эндпоинт)
-export const register = async (username, password) => {
+export const register = async (payloadOrEmail, username, password) => {
+  let payload = payloadOrEmail;
+
+  if (typeof payloadOrEmail !== "object" || payloadOrEmail === null) {
+    payload = {
+      email: payloadOrEmail,
+      username,
+      password,
+    };
+  }
+
   return request("/auth/register", {
     method: "POST",
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify(payload),
   });
 };
 
