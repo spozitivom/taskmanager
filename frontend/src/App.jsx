@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import * as api from "./api";
-import TaskImport from "./components/TaskImport";
-import KanbanBoard from "./components/KanbanBoard"; // ✅ новый Kanban
+import TaskDashboard from "./components/TaskDashboard";
 
 export default function App() {
   // --------------------
@@ -15,7 +14,7 @@ export default function App() {
   const [stage, setStage] = useState("");
 
   // Авторизация
-  const [username, setUsername] = useState("dima");
+  const [identifier, setIdentifier] = useState("dima");
   const [password, setPassword] = useState("123456");
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [loading, setLoading] = useState(true); // проверка токена при монтировании
@@ -64,8 +63,13 @@ export default function App() {
   // Логин через форму
   // --------------------
   const handleLogin = async () => {
+    if (!identifier.trim() || !password.trim()) {
+      alert("Введите email/username и пароль");
+      return;
+    }
+
     try {
-      await api.login(username, password); // сохраняет токен в localStorage
+      await api.login(identifier, password); // сохраняет токен в localStorage
       setIsLoggedIn(true);
       fetchTasks();
     } catch (err) {
@@ -83,9 +87,10 @@ export default function App() {
       .createTask({
         title,
         description: "",
-        status: "new",
-        priority: "high",
-        stage: "todo", // ✅ новые задачи сразу в колонку "todo"
+        status: "todo",
+        priority: "medium",
+        stage: "todo", // колонка Kanban по умолчанию
+        checked: false,
       })
       .then((t) => {
         setTasks((prev) => [t, ...prev]);
@@ -94,12 +99,21 @@ export default function App() {
       .catch((err) => console.error("Ошибка добавления задачи:", err.message));
   };
 
-  const toggle = (t) =>
+  const updateTaskFields = (id, data) =>
     api
-      .updateTask(t.id, { checked: !t.checked })
-      .then((u) =>
-        setTasks((prev) => prev.map((x) => (x.id === u.id ? u : x)))
-      );
+      .updateTask(id, data)
+      .then((updated) => {
+        setTasks((prev) =>
+          prev.map((task) => (task.id === updated.id ? updated : task))
+        );
+        return updated;
+      })
+      .catch((err) => {
+        console.error("Ошибка обновления задачи:", err.message);
+        throw err;
+      });
+
+  const toggle = (t) => updateTaskFields(t.id, { checked: !t.checked });
 
   const remove = (id) =>
     api
@@ -120,9 +134,9 @@ export default function App() {
       <div className="mx-auto max-w-3xl p-6">
         <h1 className="text-2xl font-bold mb-4">Task Manager — Вход</h1>
         <input
-          placeholder="Username"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
+          placeholder="Email или имя пользователя"
+          value={identifier}
+          onChange={(e) => setIdentifier(e.target.value)}
           className="border p-2 mb-2 w-full"
         />
         <input
@@ -143,71 +157,24 @@ export default function App() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl p-6">
-      <h1 className="text-2xl font-bold mb-4">Task Manager</h1>
-
-      {/* Фильтры */}
-      <div className="flex flex-wrap gap-2 mb-4">
-        <select
-          value={sort}
-          onChange={(e) => setSort(e.target.value)}
-          className="border p-1"
-        >
-          <option value="desc">Новые → старые</option>
-          <option value="asc">Старые → новые</option>
-        </select>
-
-        <select
-          value={status}
-          onChange={(e) => setStatus(e.target.value)}
-          className="border p-1"
-        >
-          <option value="">Все статусы</option>
-          <option value="todo">todo</option>
-          <option value="in_progress">in_progress</option>
-          <option value="done">done</option>
-        </select>
-
-        <select
-          value={priority}
-          onChange={(e) => setPriority(e.target.value)}
-          className="border p-1"
-        >
-          <option value="">Любой приоритет</option>
-          <option value="low">low</option>
-          <option value="medium">medium</option>
-          <option value="high">high</option>
-        </select>
-
-        <input
-          value={stage}
-          onChange={(e) => setStage(e.target.value)}
-          placeholder="Этап (например: Frontend)"
-          className="border p-1 flex-1"
-        />
-      </div>
-
-      {/* Импорт CSV */}
-      <TaskImport setTasks={setTasks} />
-
-      {/* Добавить задачу */}
-      <div className="flex gap-2 mb-6">
-        <input
-          className="flex-1 border p-2"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Новая задача"
-        />
-        <button
-          onClick={addTask}
-          className="bg-blue-600 text-white px-4 rounded"
-        >
-          Добавить
-        </button>
-      </div>
-
-      {/* Kanban доска вместо списка */}
-      <KanbanBoard tasks={tasks} setTasks={setTasks} />
-    </div>
+    <TaskDashboard
+      tasks={tasks}
+      setTasks={setTasks}
+      title={title}
+      setTitle={setTitle}
+      onAddTask={addTask}
+      onToggleTask={toggle}
+      onDeleteTask={remove}
+      onUpdateTask={updateTaskFields}
+      statusFilter={status}
+      setStatusFilter={setStatus}
+      priorityFilter={priority}
+      setPriorityFilter={setPriority}
+      stageFilter={stage}
+      setStageFilter={setStage}
+      sortOrder={sort}
+      setSortOrder={setSort}
+      identifier={identifier}
+    />
   );
 }

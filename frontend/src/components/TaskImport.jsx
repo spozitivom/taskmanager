@@ -1,9 +1,22 @@
-import { useRef } from 'react';
-import Papa from 'papaparse';
-import * as api from '../api';
+import { forwardRef, useImperativeHandle, useRef } from "react";
+import Papa from "papaparse";
+import * as api from "../api";
 
-export default function TaskImport({ setTasks }) {
+/**
+ * Компонент импорта задач из CSV.
+ * Принимает renderTrigger для кастомной кнопки/контрола.
+ */
+const TaskImport = forwardRef(function TaskImport(
+  { setTasks, renderTrigger, className, showDefaultTrigger = true },
+  ref
+) {
   const fileInputRef = useRef(null);
+
+  useImperativeHandle(ref, () => ({
+    open: () => fileInputRef.current?.click(),
+  }));
+
+  const handlePick = () => fileInputRef.current?.click();
 
   const handleFileChange = async (e) => {
     const file = e.target.files[0];
@@ -23,38 +36,58 @@ export default function TaskImport({ setTasks }) {
           try {
             const created = await api.createTask({
               title,
-              description: row.description || '',
-              status: row.status || 'new',
-              priority: row.priority || 'medium',
-              stage: row.stage || ''
+              description: row.description || "",
+              status: row.status || "todo",
+              priority: row.priority || "medium",
+              stage: row.stage || row.status || "todo",
+              checked: false,
             });
             newTasks.push(created);
           } catch (err) {
-            console.error('Ошибка при добавлении задачи:', err.message);
+            console.error("Ошибка при добавлении задачи:", err.message);
           }
         }
 
-        setTasks(prev => [...newTasks, ...prev]);
+        setTasks((prev) => [...newTasks, ...prev]);
         alert(`${newTasks.length} задач импортировано`);
-        fileInputRef.current.value = ''; // сброс выбора файла
+        if (fileInputRef.current) {
+          fileInputRef.current.value = "";
+        }
       },
       error: (err) => {
-        console.error('Ошибка парсинга CSV:', err.message);
-        alert('Ошибка при импорте CSV');
-      }
+        console.error("Ошибка парсинга CSV:", err.message);
+        alert("Ошибка при импорте CSV");
+      },
     });
   };
 
+  let trigger = null;
+  if (typeof renderTrigger === "function") {
+    trigger = renderTrigger({ onClick: handlePick });
+  } else if (showDefaultTrigger) {
+    trigger = (
+      <button
+        type="button"
+        onClick={handlePick}
+        className="px-3 py-2 rounded-md border border-slate-200 bg-white text-sm"
+      >
+        Импорт CSV
+      </button>
+    );
+  }
+
   return (
-    <div className="mb-4">
-      <label className="block mb-1 font-medium">Импорт задач из CSV:</label>
+    <div className={className}>
       <input
         ref={fileInputRef}
         type="file"
         accept=".csv"
+        className="hidden"
         onChange={handleFileChange}
-        className="border p-1"
       />
+      {trigger}
     </div>
   );
-}
+});
+
+export default TaskImport;
