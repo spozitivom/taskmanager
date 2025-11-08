@@ -43,12 +43,16 @@ func (s *TaskService) CreateTask(task *models.Task) error {
 	if task.Status == "" {
 		task.Status = models.StatusTodo
 	}
-	if task.Priority == "" {
-		task.Priority = models.PriorityMedium
+	priority, err := models.NormalizePriority(task.Priority)
+	if err != nil {
+		return err
 	}
-	if task.Stage == "" {
-		task.Stage = models.StageDefault
+	task.Priority = priority
+	stage, err := models.NormalizeStage(task.Stage)
+	if err != nil {
+		return err
 	}
+	task.Stage = stage
 	// Checked по умолчанию false — задаётся через gorm default, оставляем как есть.
 	return s.storage.Create(task)
 }
@@ -73,6 +77,12 @@ func (s *TaskService) PatchTask(id uint, patch models.TaskPatch) (*models.Task, 
 	// Мини-валидация после применения патча (опционально, но полезно).
 	if strings.TrimSpace(task.Title) == "" {
 		return nil, errors.New("title cannot be empty")
+	}
+	if task.Priority, err = models.NormalizePriority(task.Priority); err != nil {
+		return nil, err
+	}
+	if task.Stage, err = models.NormalizeStage(task.Stage); err != nil {
+		return nil, err
 	}
 
 	if err := s.storage.Update(task); err != nil {
