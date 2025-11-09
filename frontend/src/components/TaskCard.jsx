@@ -5,7 +5,7 @@ import * as api from "../api";
 const STATUS_META = {
   todo: { label: "To Do", tone: "bg-slate-100 text-slate-600" },
   in_progress: { label: "In Progress", tone: "bg-indigo-100 text-indigo-600" },
-  done: { label: "Completed", tone: "bg-emerald-100 text-emerald-600" },
+  completed: { label: "Completed", tone: "bg-emerald-100 text-emerald-600" },
 };
 
 const PRIORITY_META = {
@@ -93,9 +93,9 @@ export default function TaskCard({ task, setTasks, onEditTask }) {
             tone="border-amber-200 text-amber-600 bg-amber-50"
           />
         )}
-        {task.status !== "done" && (
+        {task.status !== "completed" && (
           <ActionButton
-            onClick={() => updateStatus("done")}
+            onClick={() => updateStatus("completed")}
             icon={<Check className="h-3.5 w-3.5" />}
             label="Завершить"
             tone="border-emerald-200 text-emerald-600 bg-emerald-50"

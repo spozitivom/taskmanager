@@ -43,7 +43,7 @@ export async function request(url, options = {}) {
 
 /* ----------  CRUD Задач ---------- */
 
-// 📌 Получить список задач с фильтрами (?sort=asc&status=done...)
+// 📌 Получить список задач с фильтрами (?sort=asc&status=completed...)
 export const getTasks = (params) =>
   request(`/tasks${params ? `?${params}` : ""}`);
 
@@ -51,7 +51,7 @@ export const getTasks = (params) =>
 export const createTask = (data) =>
   request("/tasks", { method: "POST", body: JSON.stringify(data) });
 
-// 📌 Обновить задачу (например, status → "done")
+// 📌 Обновить задачу (например, status → "completed")
 export const updateTask = (id, data) =>
   request(`/tasks/${id}`, { method: "PATCH", body: JSON.stringify(data) });
 

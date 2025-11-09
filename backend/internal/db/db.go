@@ -43,6 +43,8 @@ func Connect() *gorm.DB {
 	if err := db.AutoMigrate(
 		&models.User{},
 		&models.Task{},
+		&models.Project{},
+		&models.ProjectMember{},
 	); err != nil {
 		log.Fatalf("AutoMigrate error: %v", err)
 	}

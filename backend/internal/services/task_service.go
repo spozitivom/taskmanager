@@ -40,22 +40,27 @@ func (s *TaskService) CreateTask(task *models.Task) error {
 	if task.Title == "" {
 		return errors.New("title is required")
 	}
-	if task.Status == "" {
-		task.Status = models.StatusTodo
+	status, err := models.NormalizeTaskStatus(task.Status)
+	if err != nil {
+		return err
 	}
-	if task.Priority == "" {
-		task.Priority = models.PriorityMedium
+	task.Status = status
+	priority, err := models.NormalizePriority(task.Priority)
+	if err != nil {
+		return err
 	}
-	if task.Stage == "" {
-		task.Stage = models.StageDefault
+	task.Priority = priority
+	stage, err := models.NormalizeStage(task.Stage)
+	if err != nil {
+		return err
 	}
-	// Checked по умолчанию false — задаётся через gorm default, оставляем как есть.
+	task.Stage = stage
+	// Completion статус по умолчанию — активный (todo), additional fields заполняются ниже.
 	return s.storage.Create(task)
 }
 
 // PatchTask частично обновляет существующую задачу по ID.
-// Меняем только те поля, которые действительно пришли (указатели != nil) —
-// это решает проблему, когда Checked принудительно сбрасывался в false.
+// Меняем только те поля, которые действительно пришли (указатели != nil).
 func (s *TaskService) PatchTask(id uint, patch models.TaskPatch) (*models.Task, error) {
 	task, err := s.storage.GetByID(id)
 	if err != nil {
@@ -73,6 +78,15 @@ func (s *TaskService) PatchTask(id uint, patch models.TaskPatch) (*models.Task, 
 	// Мини-валидация после применения патча (опционально, но полезно).
 	if strings.TrimSpace(task.Title) == "" {
 		return nil, errors.New("title cannot be empty")
+	}
+	if task.Priority, err = models.NormalizePriority(task.Priority); err != nil {
+		return nil, err
+	}
+	if task.Stage, err = models.NormalizeStage(task.Stage); err != nil {
+		return nil, err
+	}
+	if task.Status, err = models.NormalizeTaskStatus(task.Status); err != nil {
+		return nil, err
 	}
 
 	if err := s.storage.Update(task); err != nil {
