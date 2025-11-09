@@ -22,7 +22,6 @@ const STATUS_META = {
   todo: { label: "To Do", tone: "slate" },
   in_progress: { label: "In Progress", tone: "blue" },
   in_review: { label: "In Review", tone: "amber" },
-  done: { label: "Completed", tone: "green" },
   completed: { label: "Completed", tone: "green" },
 };
 
@@ -32,7 +31,7 @@ const PRIORITY_META = {
   high: { label: "High", tone: "rose" },
 };
 
-const STATUS_WEIGHT = { todo: 0, in_progress: 1, in_review: 2, done: 3 };
+const STATUS_WEIGHT = { todo: 0, in_progress: 1, in_review: 2, completed: 3 };
 const PRIORITY_WEIGHT = { low: 0, medium: 1, high: 2 };
 
 export default function TaskDashboard({
@@ -73,7 +72,7 @@ export default function TaskDashboard({
     { label: "To Do", value: "todo" },
     { label: "In Progress", value: "in_progress" },
     { label: "In Review", value: "in_review" },
-    { label: "Completed", value: "done" },
+    { label: "Completed", value: "completed" },
   ];
 
   const priorityOptions = [
@@ -400,7 +399,9 @@ function TaskTable({
               <table className="w-full text-sm">
                 <thead className="bg-slate-50/80">
                   <tr className="text-left">
-                    <th className="px-4 py-3 w-12">Done</th>
+                  <th className="px-4 py-3 w-12">
+                    <span className="sr-only">Complete</span>
+                  </th>
                     <Th
                       label="Задача"
                       active={sortKey === "title"}
@@ -445,7 +446,9 @@ function TaskTable({
                       </td>
                     </tr>
                   ) : (
-                    tasks.map((task, index) => (
+                    tasks.map((task, index) => {
+                      const isCompleted = task.status === "completed";
+                      return (
                       <Draggable
                         key={task.id}
                         draggableId={task.id.toString()}
@@ -463,11 +466,11 @@ function TaskTable({
                             <td className="px-4 py-3">
                               <input
                                 type="checkbox"
-                                checked={task.checked}
+                                checked={isCompleted}
                                 onChange={() => onToggleTask(task)}
                               />
                             </td>
-                            <td className={`px-4 py-3 ${task.checked ? "line-through text-slate-400" : ""}`}>
+                            <td className={`px-4 py-3 ${isCompleted ? "line-through text-slate-400" : ""}`}>
                               <div className="font-medium">{task.title}</div>
                               {task.description && (
                                 <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">
@@ -512,7 +515,8 @@ function TaskTable({
                           </tr>
                         )}
                       </Draggable>
-                    ))
+                      );
+                    })
                   )}
                   {dropProvided.placeholder && tasks.length > 0 && (
                     <tr>

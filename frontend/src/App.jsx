@@ -90,7 +90,6 @@ export default function App() {
         status: "todo",
         priority: "medium",
         stage: "todo", // колонка Kanban по умолчанию
-        checked: false,
       })
       .then((t) => {
         setTasks((prev) => [t, ...prev]);
@@ -113,7 +112,13 @@ export default function App() {
         throw err;
       });
 
-  const toggle = (t) => updateTaskFields(t.id, { checked: !t.checked });
+  const toggle = (task) => {
+    const markCompleted = task.status !== "completed";
+    const nextStatus = markCompleted
+      ? "completed"
+      : task.previous_status || "todo";
+    return updateTaskFields(task.id, { status: nextStatus });
+  };
 
   const remove = (id) =>
     api

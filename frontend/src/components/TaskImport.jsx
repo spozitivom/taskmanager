@@ -40,7 +40,6 @@ const TaskImport = forwardRef(function TaskImport(
               status: row.status || "todo",
               priority: row.priority || "medium",
               stage: row.stage || row.status || "todo",
-              checked: false,
             });
             newTasks.push(created);
           } catch (err) {

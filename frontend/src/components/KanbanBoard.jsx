@@ -17,7 +17,7 @@ const columns = [
     badgeTone: "bg-indigo-100 text-indigo-600",
   },
   {
-    id: "done",
+    id: "completed",
     label: "Готово",
     description: "Завершённые задачи и результаты",
     badgeTone: "bg-emerald-100 text-emerald-600",
