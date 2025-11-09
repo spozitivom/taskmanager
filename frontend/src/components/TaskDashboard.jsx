@@ -6,17 +6,24 @@ import {
   Search,
   ListChecks,
   LayoutGrid,
+  Calendar,
   ChevronDown,
   ChevronsUpDown,
   ChevronUp,
   ChevronDown as CDown,
   Pencil,
   Trash2,
+  MoreHorizontal,
+  FolderPlus,
+  Settings2,
+  X,
 } from "lucide-react";
 import TaskImport from "./TaskImport";
 import KanbanBoard from "./KanbanBoard";
+import ProjectsView from "./ProjectsView";
 import TaskEditorModal from "./TaskEditorModal";
-import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";
+import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
+import { describeProject, formatDeadline } from "../utils/formatters";
 
 const STATUS_META = {
   todo: { label: "To Do", tone: "slate" },
@@ -34,13 +41,28 @@ const PRIORITY_META = {
 const STATUS_WEIGHT = { todo: 0, in_progress: 1, in_review: 2, completed: 3 };
 const PRIORITY_WEIGHT = { low: 0, medium: 1, high: 2 };
 
+const COLUMN_STORAGE_KEY = "tm_table_columns_v1";
+const COLUMN_DEFAULTS = {
+  title: true,
+  status: true,
+  priority: true,
+  stage: true,
+  project: true,
+  created_at: true,
+  deadline: false,
+};
+
+const PROJECT_STATUS_META = {
+  frozen: { icon: "🧊", title: "Проект заморожен" },
+  completed: { icon: "✅", title: "Проект завершён" },
+};
+
 export default function TaskDashboard({
   tasks,
   setTasks,
   title,
   setTitle,
   onAddTask,
-  onToggleTask,
   onDeleteTask,
   onUpdateTask,
   statusFilter,
@@ -51,21 +73,84 @@ export default function TaskDashboard({
   setStageFilter,
   sortOrder,
   setSortOrder,
+  projects,
+  projectFilter,
+  setProjectFilter,
+  onBulkDelete,
+  onBulkComplete,
+  onBulkAssign,
+  onCreateProjectFromTasks,
   identifier,
+  onProjectCreate,
+  onProjectArchive,
+  onProjectRestore,
+  onProjectDelete,
+  onProjectToggleCompleted,
+  onProjectUpdate,
+  onProjectsRefresh,
 }) {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState(null);
   const [sortDir, setSortDir] = useState(null);
   const [viewMode, setViewMode] = useState("table");
+  const [mainView, setMainView] = useState("tasks");
   const taskImportRef = useRef(null);
   const [editingTask, setEditingTask] = useState(null);
   const [modalSubmitting, setModalSubmitting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [bulkMenuOpen, setBulkMenuOpen] = useState(false);
+  const [projectModalOpen, setProjectModalOpen] = useState(false);
+  const [projectDraft, setProjectDraft] = useState({ title: "", description: "", priority: "medium" });
+  const [reassignAttached, setReassignAttached] = useState(false);
+  const [visibleColumns, setVisibleColumns] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(COLUMN_STORAGE_KEY));
+      return { ...COLUMN_DEFAULTS, ...(saved || {}) };
+    } catch (err) {
+      console.warn("Failed to parse column settings", err);
+      return { ...COLUMN_DEFAULTS };
+    }
+  });
+  const hasSelection = selectedIds.length > 0;
+
+  useEffect(() => {
+    localStorage.setItem(COLUMN_STORAGE_KEY, JSON.stringify(visibleColumns));
+  }, [visibleColumns]);
+
+  useEffect(() => {
+    setSelectedIds((prev) => prev.filter((id) => tasks.some((t) => t.id === id)));
+  }, [tasks]);
+
+  useEffect(() => {
+    if (!hasSelection) {
+      setBulkMenuOpen(false);
+    }
+  }, [hasSelection]);
+
+  const handleToggleColumn = (key) => {
+    if (key === "title" && visibleColumns.title) {
+      return;
+    }
+    setVisibleColumns((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const handleResetColumns = () => {
+    setVisibleColumns({ ...COLUMN_DEFAULTS });
+  };
 
   const stageOptions = useMemo(() => {
     return Array.from(
       new Set(tasks.map((t) => (t.stage || "").trim()).filter(Boolean))
     );
   }, [tasks]);
+
+  const projectOptions = useMemo(() => {
+    return [
+      { label: "Все проекты", value: "" },
+      { label: "Без проекта", value: "none" },
+      ...projects.map((project) => ({ label: project.title, value: String(project.id) })),
+    ];
+  }, [projects]);
 
   const statusOptions = [
     { label: "Все статусы", value: "" },
@@ -107,6 +192,12 @@ export default function TaskDashboard({
       );
     }
 
+    if (projectFilter === "none") {
+      list = list.filter((t) => !t.project_id);
+    } else if (projectFilter) {
+      list = list.filter((t) => String(t.project_id || "") === projectFilter);
+    }
+
     if (term) {
       list = list.filter((t) => {
         const titleText = (t.title || "").toLowerCase();
@@ -127,13 +218,14 @@ export default function TaskDashboard({
     }
 
     return list;
-  }, [tasks, search, statusFilter, priorityFilter, stageFilter, sortKey, sortDir]);
+  }, [tasks, search, statusFilter, priorityFilter, stageFilter, projectFilter, sortKey, sortDir]);
 
   const resetFilters = () => {
     setSearch("");
     setStatusFilter("");
     setPriorityFilter("");
     setStageFilter("");
+    setProjectFilter("");
     setSortOrder("desc");
     setSortKey(null);
     setSortDir(null);
@@ -185,6 +277,59 @@ export default function TaskDashboard({
       console.error("Ошибка сохранения задачи:", error);
     } finally {
       setModalSubmitting(false);
+    }
+  };
+
+  const toggleSelectTask = (taskId) => {
+    setSelectedIds((prev) =>
+      prev.includes(taskId) ? prev.filter((id) => id !== taskId) : [...prev, taskId]
+    );
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.length === filteredTasks.length) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(filteredTasks.map((t) => t.id));
+    }
+  };
+
+  const handleBulkAction = async (action) => {
+    if (!selectedIds.length) return;
+    try {
+      if (action === "delete") {
+        await onBulkDelete(selectedIds);
+        setSelectedIds([]);
+      } else if (action === "complete") {
+        await onBulkComplete(selectedIds);
+        setSelectedIds([]);
+      } else if (action === "remove-project") {
+        await onBulkAssign({ ids: selectedIds, projectId: null });
+        setSelectedIds([]);
+      } else if (action === "new-project") {
+        setProjectModalOpen(true);
+        return;
+      }
+    } finally {
+      setBulkMenuOpen(false);
+    }
+  };
+
+  const handleProjectModalSubmit = async (event) => {
+    event.preventDefault();
+    if (!projectDraft.title.trim()) return;
+    try {
+      await onCreateProjectFromTasks({
+        project: projectDraft,
+        ids: selectedIds,
+        reassignAttached,
+      });
+      setSelectedIds([]);
+      setProjectDraft({ title: "", description: "", priority: "medium" });
+      setReassignAttached(false);
+      setProjectModalOpen(false);
+    } catch (err) {
+      console.error("Не удалось создать проект", err);
     }
   };
 
@@ -258,18 +403,15 @@ export default function TaskDashboard({
           <nav className="p-3 rounded-2xl bg-white/90 border border-slate-200 shadow-lg shadow-slate-100">
             <ul className="space-y-1">
               {[
-                { label: "Задачи", active: viewMode === "table" },
-                { label: "Доска", active: viewMode === "kanban" },
-                { label: "Календарь", disabled: true },
-              ].map((item, i) => (
-                <li key={item.label}>
+                { label: "Задачи", value: "tasks" },
+                { label: "Проекты", value: "projects" },
+              ].map((item) => (
+                <li key={item.value}>
                   <button
-                    onClick={() =>
-                      item.disabled ? null : setViewMode(item.label === "Задачи" ? "table" : "kanban")
-                    }
+                    onClick={() => setMainView(item.value)}
                     className={`w-full text-left flex items-center gap-2 px-3 py-2 rounded-xl text-sm hover:bg-slate-50 ${
-                      item.active ? "bg-slate-50 border border-slate-200" : ""
-                    } ${item.disabled ? "opacity-50 cursor-not-allowed" : ""}`}
+                      mainView === item.value ? "bg-slate-50 border border-slate-200" : ""
+                    }`}
                   >
                     <span className="h-2 w-2 rounded-full bg-indigo-400/60" />
                     {item.label}
@@ -281,88 +423,126 @@ export default function TaskDashboard({
         </aside>
 
         <main className="col-span-12 md:col-span-9 lg:col-span-10 space-y-4">
-          <section className="rounded-2xl bg-white border border-slate-200 shadow-xl shadow-slate-100 p-4 space-y-4">
+              {mainView === "tasks" ? (
+            <>
+              <section className="rounded-2xl bg-white border border-slate-200 shadow-xl shadow-slate-100 p-4 space-y-4">
             <div className="flex flex-wrap items-center gap-3">
               <ViewDropdown viewMode={viewMode} onChange={setViewMode} />
               <DataDropdown
                 onImport={() => taskImportRef.current?.open()}
                 onExport={handleExportJson}
               />
+              <ColumnsDropdown
+                visibleColumns={visibleColumns}
+                onToggle={handleToggleColumn}
+                onReset={handleResetColumns}
+              />
               <div className="ml-auto">
                 <FiltersDropdown
                   statusOptions={statusOptions}
-                  priorityOptions={priorityOptions}
-                  stageOptions={stageOptions}
-                  sortOptions={sortOptions}
-                  statusValue={statusFilter}
-                  onStatusChange={setStatusFilter}
-                  priorityValue={priorityFilter}
-                  onPriorityChange={setPriorityFilter}
-                  stageValue={stageFilter}
-                  onStageChange={setStageFilter}
-                  sortValue={sortOrder}
-                  onSortChange={setSortOrder}
-                  onReset={resetFilters}
+                      priorityOptions={priorityOptions}
+                      stageOptions={stageOptions}
+                      projectOptions={projectOptions}
+                      sortOptions={sortOptions}
+                      statusValue={statusFilter}
+                      onStatusChange={setStatusFilter}
+                      priorityValue={priorityFilter}
+                      onPriorityChange={setPriorityFilter}
+                      stageValue={stageFilter}
+                      onStageChange={setStageFilter}
+                      projectValue={projectFilter}
+                      onProjectChange={setProjectFilter}
+                      sortValue={sortOrder}
+                      onSortChange={setSortOrder}
+                      onReset={resetFilters}
+                    />
+                  </div>
+                </div>
+
+                <div className="md:hidden">
+                  <div className="relative">
+                    <input
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      placeholder="Поиск по задачам"
+                      className="pl-10 pr-3 py-2 w-full rounded-2xl bg-slate-50 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-inner"
+                    />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-3 md:flex-row">
+                  <input
+                    className="flex-1 border border-slate-200 rounded-xl px-3 py-2 shadow-inner shadow-slate-50"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    placeholder="Новая задача"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        onAddTask();
+                      }
+                    }}
+                  />
+                  <button
+                    onClick={onAddTask}
+                    className="px-4 py-2 rounded-xl bg-indigo-600 text-white shadow-md hover:bg-indigo-500"
+                  >
+                    Добавить
+                  </button>
+                </div>
+
+                <TaskImport
+                  ref={taskImportRef}
+                  setTasks={setTasks}
+                  className="hidden"
+                  showDefaultTrigger={false}
                 />
-              </div>
-            </div>
+              </section>
 
-            <div className="md:hidden">
-              <div className="relative">
-                <input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Поиск по задачам"
-                  className="pl-10 pr-3 py-2 w-full rounded-2xl bg-slate-50 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-400 shadow-inner"
+              {viewMode === "table" && (
+                <TaskTable
+                  tasks={filteredTasks}
+                  visibleColumns={visibleColumns}
+                  onDeleteTask={onDeleteTask}
+                  onEditTask={handleEditRequest}
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onCycleSort={handleCycleSort}
+                  onDragEnd={handleTableDragEnd}
+                  selectedIds={selectedIds}
+                  onToggleSelect={toggleSelectTask}
+                  onToggleAll={toggleSelectAll}
+                  bulkMenuOpen={bulkMenuOpen}
+                  setBulkMenuOpen={setBulkMenuOpen}
+                  hasSelection={hasSelection}
+                  onBulkAction={handleBulkAction}
                 />
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-              </div>
-            </div>
+              )}
 
-            <div className="flex flex-col gap-3 md:flex-row">
-              <input
-                className="flex-1 border border-slate-200 rounded-xl px-3 py-2 shadow-inner shadow-slate-50"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="Новая задача"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    onAddTask();
-                  }
-                }}
-              />
-              <button
-                onClick={onAddTask}
-                className="px-4 py-2 rounded-xl bg-indigo-600 text-white shadow-md hover:bg-indigo-500"
-              >
-                Добавить
-              </button>
-            </div>
+              {viewMode === "kanban" && (
+                <section className="rounded-2xl bg-white border border-slate-200 shadow-xl shadow-slate-100 p-4">
+                  <KanbanBoard tasks={filteredTasks} setTasks={setTasks} onEditTask={handleEditRequest} />
+                </section>
+              )}
 
-            <TaskImport
-              ref={taskImportRef}
-              setTasks={setTasks}
-              className="hidden"
-              showDefaultTrigger={false}
-            />
-          </section>
-
-          {viewMode === "table" ? (
-            <TaskTable
-              tasks={filteredTasks}
-              onToggleTask={onToggleTask}
-              onDeleteTask={onDeleteTask}
-              onEditTask={handleEditRequest}
-              sortKey={sortKey}
-              sortDir={sortDir}
-              onCycleSort={handleCycleSort}
-              onDragEnd={handleTableDragEnd}
-            />
+              {viewMode === "calendar" && <CalendarPlaceholder />}
+            </>
           ) : (
-            <section className="rounded-2xl bg-white border border-slate-200 shadow-xl shadow-slate-100 p-4">
-              <KanbanBoard tasks={tasks} setTasks={setTasks} onEditTask={handleEditRequest} />
-            </section>
+            <ProjectsView
+              projects={projects}
+              onRefresh={onProjectsRefresh}
+              onCreate={onProjectCreate}
+              onArchive={onProjectArchive}
+              onRestore={onProjectRestore}
+              onDelete={onProjectDelete}
+              onToggleCompleted={onProjectToggleCompleted}
+              onOpenProject={(id) => {
+                setProjectFilter(String(id));
+                setMainView("tasks");
+              }}
+              onUpdate={onProjectUpdate}
+            />
           )}
         </main>
       </div>
@@ -371,10 +551,77 @@ export default function TaskDashboard({
       {editingTask && (
         <TaskEditorModal
           task={editingTask}
+          projects={projects}
           onClose={handleCloseModal}
           onSubmit={handleModalSubmit}
           submitting={modalSubmitting}
         />
+      )}
+      {projectModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+          <form
+            onSubmit={handleProjectModalSubmit}
+            className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl space-y-4"
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-slate-800">Создать проект</h3>
+              <button
+                type="button"
+                onClick={() => setProjectModalOpen(false)}
+                className="rounded-full border border-slate-200 p-1 text-slate-400"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <input
+              value={projectDraft.title}
+              onChange={(e) => setProjectDraft((prev) => ({ ...prev, title: e.target.value }))}
+              placeholder="Название"
+              className="w-full rounded-xl border border-slate-200 px-3 py-2"
+            />
+            <textarea
+              value={projectDraft.description}
+              onChange={(e) => setProjectDraft((prev) => ({ ...prev, description: e.target.value }))}
+              rows={3}
+              placeholder="Описание"
+              className="w-full rounded-xl border border-slate-200 px-3 py-2"
+            />
+            <select
+              value={projectDraft.priority}
+              onChange={(e) => setProjectDraft((prev) => ({ ...prev, priority: e.target.value }))}
+              className="w-full rounded-xl border border-slate-200 px-3 py-2"
+            >
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+              <option value="critical">Critical</option>
+            </select>
+            <label className="flex items-center gap-2 text-sm text-slate-600">
+              <input
+                type="checkbox"
+                checked={reassignAttached}
+                onChange={(e) => setReassignAttached(e.target.checked)}
+              />
+              Перенести задачи из текущих проектов
+            </label>
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setProjectModalOpen(false)}
+                className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+              >
+                Отмена
+              </button>
+              <button
+                type="submit"
+                disabled={!selectedIds.length || !projectDraft.title.trim()}
+                className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+              >
+                <FolderPlus className="h-4 w-4" /> Создать
+              </button>
+            </div>
+          </form>
+        </div>
       )}
     </div>
   );
@@ -382,14 +629,25 @@ export default function TaskDashboard({
 
 function TaskTable({
   tasks,
-  onToggleTask,
+  visibleColumns,
   onDeleteTask,
   onEditTask,
   sortKey,
   sortDir,
   onCycleSort,
   onDragEnd,
+  selectedIds,
+  onToggleSelect,
+  onToggleAll,
+  bulkMenuOpen,
+  setBulkMenuOpen,
+  hasSelection,
+  onBulkAction,
 }) {
+  const allSelected = tasks.length > 0 && selectedIds.length === tasks.length;
+  const orderedColumns = ["title", "status", "priority", "stage", "project", "created_at", "deadline"];
+  const activeColumns = orderedColumns.filter((key) => visibleColumns[key]);
+  const placeholderColspan = activeColumns.length + 2; // чекбокс + действия
   return (
     <DragDropContext onDragEnd={onDragEnd}>
       <section className="rounded-2xl bg-white border border-slate-200 shadow-xl shadow-slate-100 overflow-hidden">
@@ -399,40 +657,109 @@ function TaskTable({
               <table className="w-full text-sm">
                 <thead className="bg-slate-50/80">
                   <tr className="text-left">
-                  <th className="px-4 py-3 w-12">
-                    <span className="sr-only">Complete</span>
+                  <th className="px-2 py-3 w-10">
+                    <input type="checkbox" checked={allSelected} onChange={onToggleAll} />
                   </th>
-                    <Th
-                      label="Задача"
-                      active={sortKey === "title"}
-                      dir={sortDir}
-                      onClick={() => onCycleSort("title")}
-                    />
-                    <Th
-                      label="Статус"
-                      active={sortKey === "status"}
-                      dir={sortDir}
-                      onClick={() => onCycleSort("status")}
-                    />
-                    <Th
-                      label="Приоритет"
-                      active={sortKey === "priority"}
-                      dir={sortDir}
-                      onClick={() => onCycleSort("priority")}
-                    />
-                    <Th
-                      label="Этап"
-                      active={sortKey === "stage"}
-                      dir={sortDir}
-                      onClick={() => onCycleSort("stage")}
-                    />
-                    <Th
-                      label="Создана"
-                      active={sortKey === "created_at"}
-                      dir={sortDir}
-                      onClick={() => onCycleSort("created_at")}
-                    />
-                    <th className="px-4 py-3 w-32 text-center">Действия</th>
+                    {visibleColumns.title && (
+                      <Th
+                        label="Задача"
+                        active={sortKey === "title"}
+                        dir={sortDir}
+                        onClick={() => onCycleSort("title")}
+                      />
+                    )}
+                    {visibleColumns.status && (
+                      <Th
+                        label="Статус"
+                        active={sortKey === "status"}
+                        dir={sortDir}
+                        onClick={() => onCycleSort("status")}
+                      />
+                    )}
+                    {visibleColumns.priority && (
+                      <Th
+                        label="Приоритет"
+                        active={sortKey === "priority"}
+                        dir={sortDir}
+                        onClick={() => onCycleSort("priority")}
+                      />
+                    )}
+                    {visibleColumns.stage && (
+                      <Th
+                        label="Этап"
+                        active={sortKey === "stage"}
+                        dir={sortDir}
+                        onClick={() => onCycleSort("stage")}
+                      />
+                    )}
+                    {visibleColumns.project && (
+                      <Th
+                        label="Проект"
+                        active={sortKey === "project"}
+                        dir={sortDir}
+                        onClick={() => onCycleSort("project")}
+                      />
+                    )}
+                    {visibleColumns.created_at && (
+                      <Th
+                        label="Создана"
+                        active={sortKey === "created_at"}
+                        dir={sortDir}
+                        onClick={() => onCycleSort("created_at")}
+                      />
+                    )}
+                    {visibleColumns.deadline && (
+                      <Th
+                        label="Дедлайн"
+                        active={sortKey === "deadline"}
+                        dir={sortDir}
+                        onClick={() => onCycleSort("deadline")}
+                      />
+                    )}
+                    <th className="px-4 py-3 w-40 text-right">
+                      <div className="inline-flex flex-col items-end gap-1 relative">
+                        <button
+                          disabled={!hasSelection}
+                          onClick={() => setBulkMenuOpen((prev) => !prev)}
+                          className={`inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-medium ${
+                            hasSelection
+                              ? "border-indigo-200 text-indigo-600"
+                              : "border-slate-200 text-slate-400 cursor-not-allowed"
+                          }`}
+                        >
+                          <MoreHorizontal className="h-4 w-4" />
+                          {hasSelection ? `Действия (${selectedIds.length})` : "Действия"}
+                        </button>
+                        {bulkMenuOpen && hasSelection && (
+                          <div className="absolute right-0 top-10 z-20 w-48 rounded-xl border border-slate-200 bg-white shadow-lg">
+                            <button
+                              onClick={() => onBulkAction("delete")}
+                              className="block w-full px-4 py-2 text-left text-sm hover:bg-slate-50"
+                            >
+                              Удалить
+                            </button>
+                            <button
+                              onClick={() => onBulkAction("complete")}
+                              className="block w-full px-4 py-2 text-left text-sm hover:bg-slate-50"
+                            >
+                              Завершить
+                            </button>
+                            <button
+                              onClick={() => onBulkAction("remove-project")}
+                              className="block w-full px-4 py-2 text-left text-sm hover:bg-slate-50"
+                            >
+                              Убрать из проекта
+                            </button>
+                            <button
+                              onClick={() => onBulkAction("new-project")}
+                              className="block w-full px-4 py-2 text-left text-sm hover:bg-slate-50"
+                            >
+                              В новый проект
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </th>
                   </tr>
                 </thead>
                 <tbody
@@ -441,13 +768,14 @@ function TaskTable({
                 >
                   {tasks.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-4 py-6 text-center text-slate-500">
+                      <td colSpan={placeholderColspan} className="px-4 py-6 text-center text-slate-500">
                         Нет задач, удовлетворяющих фильтрам
                       </td>
                     </tr>
                   ) : (
                     tasks.map((task, index) => {
                       const isCompleted = task.status === "completed";
+                      const isSelected = selectedIds.includes(task.id);
                       return (
                       <Draggable
                         key={task.id}
@@ -459,43 +787,63 @@ function TaskTable({
                             ref={dragProvided.innerRef}
                             {...dragProvided.draggableProps}
                             {...dragProvided.dragHandleProps}
-                            className={`border-t border-slate-100 hover:bg-slate-50/50 transition-colors ${
+                            className={`border-t border-slate-100 transition-colors ${
                               snapshot.isDragging ? "bg-indigo-50" : ""
-                            }`}
+                            } ${isSelected ? "bg-indigo-50/40" : "hover:bg-slate-50/50"}`}
                           >
-                            <td className="px-4 py-3">
+                            <td className="px-2 py-3">
                               <input
                                 type="checkbox"
-                                checked={isCompleted}
-                                onChange={() => onToggleTask(task)}
+                                checked={isSelected}
+                                onChange={() => onToggleSelect(task.id)}
                               />
                             </td>
-                            <td className={`px-4 py-3 ${isCompleted ? "line-through text-slate-400" : ""}`}>
-                              <div className="font-medium">{task.title}</div>
-                              {task.description && (
-                                <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">
-                                  {task.description}
-                                </p>
-                              )}
-                            </td>
-                            <td className="px-4 py-3">
-                              <Pill tone={STATUS_META[task.status]?.tone || "slate"}>
-                                {STATUS_META[task.status]?.label || task.status || "—"}
-                              </Pill>
-                            </td>
-                            <td className="px-4 py-3">
-                              <Pill tone={PRIORITY_META[task.priority]?.tone || "slate"}>
-                                {PRIORITY_META[task.priority]?.label || task.priority || "—"}
-                              </Pill>
-                            </td>
-                            <td className="px-4 py-3">
-                              <Pill tone="slate">{task.stage || "—"}</Pill>
-                            </td>
-                            <td className="px-4 py-3 text-slate-600">
-                              {task.created_at
-                                ? new Date(task.created_at).toLocaleDateString()
-                                : "—"}
-                            </td>
+                            {visibleColumns.title && (
+                              <td className={`px-4 py-3 ${isCompleted ? "line-through text-slate-400" : ""}`}>
+                                <div className="font-medium">{task.title}</div>
+                                {task.description && (
+                                  <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">
+                                    {task.description}
+                                  </p>
+                                )}
+                              </td>
+                            )}
+                            {visibleColumns.status && (
+                              <td className="px-4 py-3">
+                                <Pill tone={STATUS_META[task.status]?.tone || "slate"}>
+                                  {STATUS_META[task.status]?.label || task.status || "—"}
+                                </Pill>
+                              </td>
+                            )}
+                            {visibleColumns.priority && (
+                              <td className="px-4 py-3">
+                                <Pill tone={PRIORITY_META[task.priority]?.tone || "slate"}>
+                                  {PRIORITY_META[task.priority]?.label || task.priority || "—"}
+                                </Pill>
+                              </td>
+                            )}
+                            {visibleColumns.stage && (
+                              <td className="px-4 py-3">
+                                <Pill tone="slate">{task.stage || "—"}</Pill>
+                              </td>
+                            )}
+                            {visibleColumns.project && (
+                              <td className="px-4 py-3">
+                                <ProjectCell project={task.project} />
+                              </td>
+                            )}
+                            {visibleColumns.created_at && (
+                              <td className="px-4 py-3 text-slate-600">
+                                {task.created_at
+                                  ? new Date(task.created_at).toLocaleDateString()
+                                  : "—"}
+                              </td>
+                            )}
+                            {visibleColumns.deadline && (
+                              <td className="px-4 py-3">
+                                <DeadlineCell deadline={task.deadline} />
+                              </td>
+                            )}
                             <td className="px-4 py-3">
                               <div className="flex items-center justify-center gap-3">
                                 <button
@@ -518,9 +866,9 @@ function TaskTable({
                       );
                     })
                   )}
-                  {dropProvided.placeholder && tasks.length > 0 && (
+                    {dropProvided.placeholder && tasks.length > 0 && (
                     <tr>
-                      <td colSpan={7}>{dropProvided.placeholder}</td>
+                      <td colSpan={placeholderColspan}>{dropProvided.placeholder}</td>
                     </tr>
                   )}
                 </tbody>
@@ -536,11 +884,30 @@ function TaskTable({
   );
 }
 
+function ProjectCell({ project }) {
+  const meta = describeProject(project);
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-slate-200 ${meta.tone}`}
+      title={meta.tooltip}
+    >
+      {meta.icon && <span>{meta.icon}</span>}
+      {meta.label}
+    </span>
+  );
+}
+
+function DeadlineCell({ deadline }) {
+  const meta = formatDeadline(deadline);
+  return <span className={`text-sm ${meta.tone}`}>{meta.text}</span>;
+}
+
 function ViewDropdown({ viewMode, onChange }) {
   const [open, setOpen] = useState(false);
   const options = [
     { value: "table", label: "Список", icon: ListChecks },
     { value: "kanban", label: "Kanban", icon: LayoutGrid },
+    { value: "calendar", label: "Календарь", icon: Calendar },
   ];
   const containerRef = useRef(null);
   useOutsideClose(containerRef, () => setOpen(false), open);
@@ -617,10 +984,64 @@ function DataDropdown({ onImport, onExport }) {
   );
 }
 
+function ColumnsDropdown({ visibleColumns, onToggle, onReset }) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef(null);
+  useOutsideClose(containerRef, () => setOpen(false), open);
+
+  const options = [
+    { key: "title", label: "Задача", locked: true },
+    { key: "status", label: "Статус" },
+    { key: "priority", label: "Приоритет" },
+    { key: "stage", label: "Этап" },
+    { key: "project", label: "Проект" },
+    { key: "created_at", label: "Создана" },
+    { key: "deadline", label: "Дедлайн" },
+  ];
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 shadow-sm inline-flex items-center gap-2 text-sm"
+      >
+        <Settings2 className="h-4 w-4" />
+        Колонки
+        <ChevronDown className={`h-4 w-4 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="absolute right-0 z-50 mt-2 w-56 rounded-xl bg-white border border-slate-200 shadow-xl shadow-slate-100 p-3 space-y-2">
+          {options.map((opt) => (
+            <label key={opt.key} className="flex items-center gap-2 text-sm text-slate-600">
+              <input
+                type="checkbox"
+                checked={visibleColumns[opt.key]}
+                disabled={opt.locked}
+                onChange={() => onToggle(opt.key)}
+              />
+              {opt.label}
+            </label>
+          ))}
+          <button
+            onClick={() => {
+              onReset();
+              setOpen(false);
+            }}
+            className="w-full text-xs text-slate-400 hover:text-indigo-600"
+          >
+            Сбросить по умолчанию
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function FiltersDropdown({
   statusOptions,
   priorityOptions,
   stageOptions,
+  projectOptions,
   sortOptions,
   statusValue,
   onStatusChange,
@@ -628,6 +1049,8 @@ function FiltersDropdown({
   onPriorityChange,
   stageValue,
   onStageChange,
+  projectValue,
+  onProjectChange,
   sortValue,
   onSortChange,
   onReset,
@@ -697,6 +1120,20 @@ function FiltersDropdown({
                 ))}
               </datalist>
             )}
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-500 mb-1">Проект</label>
+            <select
+              value={projectValue}
+              onChange={(e) => onProjectChange(e.target.value)}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+            >
+              {projectOptions.map((opt) => (
+                <option key={opt.value || "all"} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
           </div>
           <div>
             <label className="block text-xs font-medium text-slate-500 mb-1">Сортировка</label>
@@ -803,6 +1240,15 @@ function UserMenu({ name, initial }) {
   );
 }
 
+function CalendarPlaceholder() {
+  return (
+    <section className="rounded-2xl bg-white border border-slate-200 shadow-xl shadow-slate-100 p-8 text-center text-slate-500">
+      <p className="text-lg font-medium">Календарный вид появится позже</p>
+      <p className="text-sm mt-2">Сейчас можно работать в режиме списка или Kanban.</p>
+    </section>
+  );
+}
+
 function getSortValue(task, key) {
   switch (key) {
     case "status":
@@ -811,8 +1257,12 @@ function getSortValue(task, key) {
       return PRIORITY_WEIGHT[task.priority] ?? 99;
     case "stage":
       return (task.stage || "").toLowerCase();
+    case "project":
+      return (task.project?.title || "").toLowerCase();
     case "created_at":
       return task.created_at ? new Date(task.created_at).getTime() : 0;
+    case "deadline":
+      return task.deadline ? new Date(task.deadline).getTime() : Number.MAX_SAFE_INTEGER;
     case "title":
     default:
       return (task.title || "").toLowerCase();
