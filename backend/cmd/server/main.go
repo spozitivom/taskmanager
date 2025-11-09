@@ -25,8 +25,12 @@ func main() {
 	db := appdb.Connect()
 
 	taskStorage := storage.NewTaskStorage(db)
+	userStorage := storage.NewUserStorage(db)
+	projectStorage := storage.NewProjectStorage(db)
 	taskService := services.NewTaskService(taskStorage)
-	taskHandler := handlers.NewTaskHandler(taskService)
+	projectService := services.NewProjectService(projectStorage, taskStorage, userStorage)
+	taskHandler := handlers.NewTaskHandler(taskService, projectService)
+	projectHandler := handlers.NewProjectHandler(projectService)
 
 	authHandler := &handlers.AuthHandler{DB: db}
 
@@ -40,8 +44,9 @@ func main() {
 	router.POST("/api/auth/register", authHandler.Register)
 	router.POST("/api/auth/login", authHandler.Login)
 
-	// Защищённые задачи.
+	// Защищённые маршруты.
 	taskHandler.RegisterRoutes(router)
+	projectHandler.RegisterRoutes(router)
 
 	// Запускаем сервер.
 	port := os.Getenv("PORT")

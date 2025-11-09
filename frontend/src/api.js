@@ -59,6 +59,47 @@ export const updateTask = (id, data) =>
 export const deleteTask = (id) =>
   request(`/tasks/${id}`, { method: "DELETE" });
 
+export const bulkDeleteTasks = (ids) =>
+  request("/tasks/bulk/delete", { method: "POST", body: JSON.stringify({ ids }) });
+
+export const bulkStatusTasks = (ids, status) =>
+  request("/tasks/bulk/status", {
+    method: "POST",
+    body: JSON.stringify({ ids, status }),
+  });
+
+export const bulkAssignTasks = (payload) =>
+  request("/tasks/bulk/assign", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+/* ----------  Projects ---------- */
+
+export const getProjects = (includeArchived = false) =>
+  request(`/projects${includeArchived ? "?include_archived=true" : ""}`);
+
+export const createProject = (data) =>
+  request("/projects", { method: "POST", body: JSON.stringify(data) });
+
+export const updateProject = (id, data) =>
+  request(`/projects/${id}`, { method: "PATCH", body: JSON.stringify(data) });
+
+export const archiveProject = (id) =>
+  request(`/projects/${id}/archive`, { method: "POST" });
+
+export const restoreProject = (id) =>
+  request(`/projects/${id}/restore`, { method: "POST" });
+
+export const deleteProject = (id) =>
+  request(`/projects/${id}`, { method: "DELETE" });
+
+export const toggleProjectCompleted = (id, cascade = "cancel_unfinished") =>
+  request(`/projects/${id}/toggle-completed?cascade=${cascade}`, { method: "POST" });
+
+export const createProjectFromTasks = (payload) =>
+  request("/projects/from-tasks", { method: "POST", body: JSON.stringify(payload) });
+
 /* ----------  Аутентификация ---------- */
 
 // 📌 Вход (логин) → сохраняет токен

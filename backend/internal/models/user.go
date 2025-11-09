@@ -9,6 +9,7 @@ type User struct {
 	Username  string    `gorm:"type:varchar(64);uniqueIndex:uniq_users_username" json:"username"`
 	Password  string    `gorm:"type:varchar(255);not null" json:"-"` // не выдаем в JSON
 	Role      string    `gorm:"type:varchar(32);default:user" json:"role"`
+	MaxProjects int      `gorm:"default:50" json:"max_projects"`
 	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt time.Time `gorm:"autoUpdateTime"  json:"updated_at"`
 }

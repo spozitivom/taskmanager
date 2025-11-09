@@ -12,6 +12,9 @@ import {
   ChevronDown as CDown,
   Pencil,
   Trash2,
+  MoreHorizontal,
+  FolderPlus,
+  X,
 } from "lucide-react";
 import TaskImport from "./TaskImport";
 import KanbanBoard from "./KanbanBoard";
@@ -51,6 +54,13 @@ export default function TaskDashboard({
   setStageFilter,
   sortOrder,
   setSortOrder,
+  projects,
+  projectFilter,
+  setProjectFilter,
+  onBulkDelete,
+  onBulkComplete,
+  onBulkAssign,
+  onCreateProjectFromTasks,
   identifier,
 }) {
   const [search, setSearch] = useState("");
@@ -60,12 +70,36 @@ export default function TaskDashboard({
   const taskImportRef = useRef(null);
   const [editingTask, setEditingTask] = useState(null);
   const [modalSubmitting, setModalSubmitting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [bulkMenuOpen, setBulkMenuOpen] = useState(false);
+  const [projectModalOpen, setProjectModalOpen] = useState(false);
+  const [projectDraft, setProjectDraft] = useState({ title: "", description: "", priority: "medium" });
+  const [reassignAttached, setReassignAttached] = useState(false);
+  const hasSelection = selectedIds.length > 0;
+
+  useEffect(() => {
+    setSelectedIds((prev) => prev.filter((id) => tasks.some((t) => t.id === id)));
+  }, [tasks]);
+
+  useEffect(() => {
+    if (!hasSelection) {
+      setBulkMenuOpen(false);
+    }
+  }, [hasSelection]);
 
   const stageOptions = useMemo(() => {
     return Array.from(
       new Set(tasks.map((t) => (t.stage || "").trim()).filter(Boolean))
     );
   }, [tasks]);
+
+  const projectOptions = useMemo(() => {
+    return [
+      { label: "Все проекты", value: "" },
+      { label: "Без проекта", value: "none" },
+      ...projects.map((project) => ({ label: project.title, value: String(project.id) })),
+    ];
+  }, [projects]);
 
   const statusOptions = [
     { label: "Все статусы", value: "" },
@@ -107,6 +141,12 @@ export default function TaskDashboard({
       );
     }
 
+    if (projectFilter === "none") {
+      list = list.filter((t) => !t.project_id);
+    } else if (projectFilter) {
+      list = list.filter((t) => String(t.project_id || "") === projectFilter);
+    }
+
     if (term) {
       list = list.filter((t) => {
         const titleText = (t.title || "").toLowerCase();
@@ -127,13 +167,14 @@ export default function TaskDashboard({
     }
 
     return list;
-  }, [tasks, search, statusFilter, priorityFilter, stageFilter, sortKey, sortDir]);
+  }, [tasks, search, statusFilter, priorityFilter, stageFilter, projectFilter, sortKey, sortDir]);
 
   const resetFilters = () => {
     setSearch("");
     setStatusFilter("");
     setPriorityFilter("");
     setStageFilter("");
+    setProjectFilter("");
     setSortOrder("desc");
     setSortKey(null);
     setSortDir(null);
@@ -185,6 +226,59 @@ export default function TaskDashboard({
       console.error("Ошибка сохранения задачи:", error);
     } finally {
       setModalSubmitting(false);
+    }
+  };
+
+  const toggleSelectTask = (taskId) => {
+    setSelectedIds((prev) =>
+      prev.includes(taskId) ? prev.filter((id) => id !== taskId) : [...prev, taskId]
+    );
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.length === filteredTasks.length) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(filteredTasks.map((t) => t.id));
+    }
+  };
+
+  const handleBulkAction = async (action) => {
+    if (!selectedIds.length) return;
+    try {
+      if (action === "delete") {
+        await onBulkDelete(selectedIds);
+        setSelectedIds([]);
+      } else if (action === "complete") {
+        await onBulkComplete(selectedIds);
+        setSelectedIds([]);
+      } else if (action === "remove-project") {
+        await onBulkAssign({ ids: selectedIds, projectId: null });
+        setSelectedIds([]);
+      } else if (action === "new-project") {
+        setProjectModalOpen(true);
+        return;
+      }
+    } finally {
+      setBulkMenuOpen(false);
+    }
+  };
+
+  const handleProjectModalSubmit = async (event) => {
+    event.preventDefault();
+    if (!projectDraft.title.trim()) return;
+    try {
+      await onCreateProjectFromTasks({
+        project: projectDraft,
+        ids: selectedIds,
+        reassignAttached,
+      });
+      setSelectedIds([]);
+      setProjectDraft({ title: "", description: "", priority: "medium" });
+      setReassignAttached(false);
+      setProjectModalOpen(false);
+    } catch (err) {
+      console.error("Не удалось создать проект", err);
     }
   };
 
@@ -289,21 +383,24 @@ export default function TaskDashboard({
                 onExport={handleExportJson}
               />
               <div className="ml-auto">
-                <FiltersDropdown
-                  statusOptions={statusOptions}
-                  priorityOptions={priorityOptions}
-                  stageOptions={stageOptions}
-                  sortOptions={sortOptions}
-                  statusValue={statusFilter}
-                  onStatusChange={setStatusFilter}
-                  priorityValue={priorityFilter}
-                  onPriorityChange={setPriorityFilter}
-                  stageValue={stageFilter}
-                  onStageChange={setStageFilter}
-                  sortValue={sortOrder}
-                  onSortChange={setSortOrder}
-                  onReset={resetFilters}
-                />
+              <FiltersDropdown
+                statusOptions={statusOptions}
+                priorityOptions={priorityOptions}
+                stageOptions={stageOptions}
+                projectOptions={projectOptions}
+                sortOptions={sortOptions}
+                statusValue={statusFilter}
+                onStatusChange={setStatusFilter}
+                priorityValue={priorityFilter}
+                onPriorityChange={setPriorityFilter}
+                stageValue={stageFilter}
+                onStageChange={setStageFilter}
+                projectValue={projectFilter}
+                onProjectChange={setProjectFilter}
+                sortValue={sortOrder}
+                onSortChange={setSortOrder}
+                onReset={resetFilters}
+              />
               </div>
             </div>
 
@@ -346,6 +443,53 @@ export default function TaskDashboard({
               className="hidden"
               showDefaultTrigger={false}
             />
+
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm text-slate-500">
+                Выбрано задач: <strong>{selectedIds.length}</strong>
+              </p>
+              <div className="relative">
+                <button
+                  disabled={!hasSelection}
+                  onClick={() => setBulkMenuOpen((prev) => !prev)}
+                  className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm ${
+                    hasSelection
+                      ? "border-indigo-200 text-indigo-600"
+                      : "border-slate-200 text-slate-400 cursor-not-allowed"
+                  }`}
+                >
+                  <MoreHorizontal className="h-4 w-4" /> Действия
+                </button>
+                {bulkMenuOpen && hasSelection && (
+                  <div className="absolute right-0 z-20 mt-2 w-56 rounded-xl border border-slate-200 bg-white shadow-lg">
+                    <button
+                      onClick={() => handleBulkAction("delete")}
+                      className="block w-full px-4 py-2 text-left text-sm hover:bg-slate-50"
+                    >
+                      Удалить
+                    </button>
+                    <button
+                      onClick={() => handleBulkAction("complete")}
+                      className="block w-full px-4 py-2 text-left text-sm hover:bg-slate-50"
+                    >
+                      Завершить
+                    </button>
+                    <button
+                      onClick={() => handleBulkAction("remove-project")}
+                      className="block w-full px-4 py-2 text-left text-sm hover:bg-slate-50"
+                    >
+                      Убрать из проекта
+                    </button>
+                    <button
+                      onClick={() => handleBulkAction("new-project")}
+                      className="block w-full px-4 py-2 text-left text-sm hover:bg-slate-50"
+                    >
+                      В новый проект
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
           </section>
 
           {viewMode === "table" ? (
@@ -358,6 +502,9 @@ export default function TaskDashboard({
               sortDir={sortDir}
               onCycleSort={handleCycleSort}
               onDragEnd={handleTableDragEnd}
+              selectedIds={selectedIds}
+              onToggleSelect={toggleSelectTask}
+              onToggleAll={toggleSelectAll}
             />
           ) : (
             <section className="rounded-2xl bg-white border border-slate-200 shadow-xl shadow-slate-100 p-4">
@@ -376,6 +523,72 @@ export default function TaskDashboard({
           submitting={modalSubmitting}
         />
       )}
+      {projectModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+          <form
+            onSubmit={handleProjectModalSubmit}
+            className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl space-y-4"
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-slate-800">Создать проект</h3>
+              <button
+                type="button"
+                onClick={() => setProjectModalOpen(false)}
+                className="rounded-full border border-slate-200 p-1 text-slate-400"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <input
+              value={projectDraft.title}
+              onChange={(e) => setProjectDraft((prev) => ({ ...prev, title: e.target.value }))}
+              placeholder="Название"
+              className="w-full rounded-xl border border-slate-200 px-3 py-2"
+            />
+            <textarea
+              value={projectDraft.description}
+              onChange={(e) => setProjectDraft((prev) => ({ ...prev, description: e.target.value }))}
+              rows={3}
+              placeholder="Описание"
+              className="w-full rounded-xl border border-slate-200 px-3 py-2"
+            />
+            <select
+              value={projectDraft.priority}
+              onChange={(e) => setProjectDraft((prev) => ({ ...prev, priority: e.target.value }))}
+              className="w-full rounded-xl border border-slate-200 px-3 py-2"
+            >
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+              <option value="critical">Critical</option>
+            </select>
+            <label className="flex items-center gap-2 text-sm text-slate-600">
+              <input
+                type="checkbox"
+                checked={reassignAttached}
+                onChange={(e) => setReassignAttached(e.target.checked)}
+              />
+              Перенести задачи из текущих проектов
+            </label>
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setProjectModalOpen(false)}
+                className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+              >
+                Отмена
+              </button>
+              <button
+                type="submit"
+                disabled={!selectedIds.length || !projectDraft.title.trim()}
+                className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+              >
+                <FolderPlus className="h-4 w-4" /> Создать
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
@@ -389,7 +602,11 @@ function TaskTable({
   sortDir,
   onCycleSort,
   onDragEnd,
+  selectedIds,
+  onToggleSelect,
+  onToggleAll,
 }) {
+  const allSelected = tasks.length > 0 && selectedIds.length === tasks.length;
   return (
     <DragDropContext onDragEnd={onDragEnd}>
       <section className="rounded-2xl bg-white border border-slate-200 shadow-xl shadow-slate-100 overflow-hidden">
@@ -399,6 +616,9 @@ function TaskTable({
               <table className="w-full text-sm">
                 <thead className="bg-slate-50/80">
                   <tr className="text-left">
+                  <th className="px-2 py-3 w-10">
+                    <input type="checkbox" checked={allSelected} onChange={onToggleAll} />
+                  </th>
                   <th className="px-4 py-3 w-12">
                     <span className="sr-only">Complete</span>
                   </th>
@@ -441,13 +661,14 @@ function TaskTable({
                 >
                   {tasks.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-4 py-6 text-center text-slate-500">
+                      <td colSpan={8} className="px-4 py-6 text-center text-slate-500">
                         Нет задач, удовлетворяющих фильтрам
                       </td>
                     </tr>
                   ) : (
                     tasks.map((task, index) => {
                       const isCompleted = task.status === "completed";
+                      const isSelected = selectedIds.includes(task.id);
                       return (
                       <Draggable
                         key={task.id}
@@ -459,10 +680,17 @@ function TaskTable({
                             ref={dragProvided.innerRef}
                             {...dragProvided.draggableProps}
                             {...dragProvided.dragHandleProps}
-                            className={`border-t border-slate-100 hover:bg-slate-50/50 transition-colors ${
+                            className={`border-t border-slate-100 transition-colors ${
                               snapshot.isDragging ? "bg-indigo-50" : ""
-                            }`}
+                            } ${isSelected ? "bg-indigo-50/40" : "hover:bg-slate-50/50"}`}
                           >
+                            <td className="px-2 py-3">
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => onToggleSelect(task.id)}
+                              />
+                            </td>
                             <td className="px-4 py-3">
                               <input
                                 type="checkbox"
@@ -518,9 +746,9 @@ function TaskTable({
                       );
                     })
                   )}
-                  {dropProvided.placeholder && tasks.length > 0 && (
+                    {dropProvided.placeholder && tasks.length > 0 && (
                     <tr>
-                      <td colSpan={7}>{dropProvided.placeholder}</td>
+                      <td colSpan={8}>{dropProvided.placeholder}</td>
                     </tr>
                   )}
                 </tbody>
@@ -621,6 +849,7 @@ function FiltersDropdown({
   statusOptions,
   priorityOptions,
   stageOptions,
+  projectOptions,
   sortOptions,
   statusValue,
   onStatusChange,
@@ -628,6 +857,8 @@ function FiltersDropdown({
   onPriorityChange,
   stageValue,
   onStageChange,
+  projectValue,
+  onProjectChange,
   sortValue,
   onSortChange,
   onReset,
@@ -880,3 +1111,17 @@ function LogoIcon({ className }) {
     </svg>
   );
 }
+          <div>
+            <label className="block text-xs font-medium text-slate-500 mb-1">Проект</label>
+            <select
+              value={projectValue}
+              onChange={(e) => onProjectChange(e.target.value)}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+            >
+              {projectOptions.map((opt) => (
+                <option key={opt.value || "all"} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </div>
