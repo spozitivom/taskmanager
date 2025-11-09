@@ -7,7 +7,7 @@ type TaskPatch struct {
 	Status      *string `json:"status,omitempty"`
 	Priority    *string `json:"priority,omitempty"`
 	Stage       *string `json:"stage,omitempty"`
-	Checked     *bool   `json:"checked,omitempty"`
+	ProjectID   *uint   `json:"project_id,omitempty"`
 }
 
 func (p TaskPatch) ApplyTo(t *Task) {
@@ -18,7 +18,7 @@ func (p TaskPatch) ApplyTo(t *Task) {
 		t.Description = *p.Description
 	}
 	if p.Status != nil {
-		t.Status = *p.Status
+		t.ApplyStatusTransition(*p.Status)
 	}
 	if p.Priority != nil {
 		t.Priority = *p.Priority
@@ -26,8 +26,8 @@ func (p TaskPatch) ApplyTo(t *Task) {
 	if p.Stage != nil {
 		t.Stage = *p.Stage
 	}
-	if p.Checked != nil {
-		t.Checked = *p.Checked
+	if p.ProjectID != nil {
+		t.ProjectID = p.ProjectID
 	}
 }
 
@@ -38,5 +38,5 @@ func (p TaskPatch) IsEmpty() bool {
 		p.Status == nil &&
 		p.Priority == nil &&
 		p.Stage == nil &&
-		p.Checked == nil
+		p.ProjectID == nil
 }

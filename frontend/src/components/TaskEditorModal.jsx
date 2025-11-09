@@ -5,7 +5,7 @@ const STATUS_OPTIONS = [
   { label: "To Do", value: "todo" },
   { label: "In Progress", value: "in_progress" },
   { label: "In Review", value: "in_review" },
-  { label: "Completed", value: "done" },
+  { label: "Completed", value: "completed" },
 ];
 
 const PRIORITY_OPTIONS = [
@@ -106,17 +106,6 @@ export default function TaskEditorModal({ task, onClose, onSubmit, submitting })
                 ))}
               </select>
             </Field>
-            <Field label="Отмечено как выполненное">
-              <label className="flex items-center gap-2 text-sm text-slate-600">
-                <input
-                  type="checkbox"
-                  checked={form.checked}
-                  onChange={handleChange("checked")}
-                  className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
-                />
-                Готово
-              </label>
-            </Field>
           </div>
 
           <div className="flex items-center justify-between border-t border-slate-100 pt-5">
@@ -165,7 +154,6 @@ function getInitialState(task) {
       status: "todo",
       priority: "medium",
       stage: "",
-      checked: false,
     };
   }
 
@@ -175,6 +163,5 @@ function getInitialState(task) {
     status: task.status || "todo",
     priority: task.priority || "medium",
     stage: task.stage || "",
-    checked: Boolean(task.checked),
   };
 }
