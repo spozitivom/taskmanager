@@ -1,6 +1,6 @@
 import React from "react";
 import TaskCard from "./TaskCard";
-import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";
+import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import * as api from "../api";
 
 const columns = [

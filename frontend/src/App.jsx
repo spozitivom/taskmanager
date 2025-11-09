@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import * as api from "./api";
 import TaskDashboard from "./components/TaskDashboard";
-import ProjectsView from "./components/ProjectsView";
 
 export default function App() {
   const [tasks, setTasks] = useState([]);
@@ -12,7 +11,6 @@ export default function App() {
   const [stage, setStage] = useState("");
   const [projectFilter, setProjectFilter] = useState("");
   const [projects, setProjects] = useState([]);
-  const [view, setView] = useState("tasks");
 
   const [identifier, setIdentifier] = useState("dima");
   const [password, setPassword] = useState("123456");
@@ -85,6 +83,7 @@ export default function App() {
 
   const addTask = () => {
     if (!title.trim()) return;
+    const projectId = projectFilter && projectFilter !== "none" ? Number(projectFilter) : null;
     api
       .createTask({
         title,
@@ -92,6 +91,7 @@ export default function App() {
         status: "todo",
         priority: "medium",
         stage: "todo",
+        project_id: projectId,
       })
       .then((t) => {
         setTasks((prev) => [t, ...prev]);
@@ -112,10 +112,6 @@ export default function App() {
         throw err;
       });
 
-  const toggle = (task) => {
-    const nextStatus = task.status !== "completed" ? "completed" : task.previous_status || "todo";
-    return updateTaskFields(task.id, { status: nextStatus });
-  };
 
   const remove = (id) =>
     api
@@ -181,6 +177,11 @@ export default function App() {
         fetchProjects();
         fetchTasks();
       },
+      update: async (id, payload) => {
+        await api.updateProject(id, payload);
+        fetchProjects();
+        fetchTasks();
+      },
     }),
     [fetchProjects, fetchTasks]
   );
@@ -214,90 +215,37 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
-      <aside className="w-60 border-r border-slate-200 bg-white p-4 space-y-4">
-        <div>
-          <p className="text-xs uppercase text-slate-400">Навигация</p>
-          <div className="mt-2 flex flex-col gap-2">
-            <button
-              onClick={() => setView("tasks")}
-              className={`text-left px-3 py-2 rounded-lg ${
-                view === "tasks" ? "bg-indigo-600 text-white" : "hover:bg-slate-100"
-              }`}
-            >
-              Задачи
-            </button>
-            <button
-              onClick={() => setView("projects")}
-              className={`text-left px-3 py-2 rounded-lg ${
-                view === "projects" ? "bg-indigo-600 text-white" : "hover:bg-slate-100"
-              }`}
-            >
-              Проекты
-            </button>
-          </div>
-        </div>
-        <div>
-          <p className="text-xs uppercase text-slate-400 mb-1">Фильтр проектов</p>
-          <select
-            value={projectFilter}
-            onChange={(e) => setProjectFilter(e.target.value)}
-            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-          >
-            <option value="">Все проекты</option>
-            <option value="none">Без проекта</option>
-            {projects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.title}
-              </option>
-            ))}
-          </select>
-        </div>
-      </aside>
-      <main className="flex-1 p-6">
-        {view === "projects" ? (
-          <ProjectsView
-            projects={projects}
-            onRefresh={fetchProjects}
-            onCreate={projectActions.create}
-            onArchive={projectActions.archive}
-            onRestore={projectActions.restore}
-            onDelete={projectActions.del}
-            onToggleCompleted={projectActions.toggleCompleted}
-            onOpenProject={(id) => {
-              setProjectFilter(String(id));
-              setView("tasks");
-            }}
-          />
-        ) : (
-          <TaskDashboard
-            tasks={tasks}
-            setTasks={setTasks}
-            title={title}
-            setTitle={setTitle}
-            onAddTask={addTask}
-            onToggleTask={toggle}
-            onDeleteTask={remove}
-            onUpdateTask={updateTaskFields}
-            statusFilter={status}
-            setStatusFilter={setStatus}
-            priorityFilter={priority}
-            setPriorityFilter={setPriority}
-            stageFilter={stage}
-            setStageFilter={setStage}
-            sortOrder={sort}
-            setSortOrder={setSort}
-            projects={projects}
-            projectFilter={projectFilter}
-            setProjectFilter={setProjectFilter}
-            onBulkDelete={bulkDelete}
-            onBulkComplete={bulkComplete}
-            onBulkAssign={bulkAssign}
-            onCreateProjectFromTasks={createProjectFromTasks}
-            identifier={identifier}
-          />
-        )}
-      </main>
-    </div>
+    <TaskDashboard
+      tasks={tasks}
+      setTasks={setTasks}
+      title={title}
+      setTitle={setTitle}
+      onAddTask={addTask}
+      onDeleteTask={remove}
+      onUpdateTask={updateTaskFields}
+      statusFilter={status}
+      setStatusFilter={setStatus}
+      priorityFilter={priority}
+      setPriorityFilter={setPriority}
+      stageFilter={stage}
+      setStageFilter={setStage}
+      sortOrder={sort}
+      setSortOrder={setSort}
+      projects={projects}
+      projectFilter={projectFilter}
+      setProjectFilter={setProjectFilter}
+      onBulkDelete={bulkDelete}
+      onBulkComplete={bulkComplete}
+      onBulkAssign={bulkAssign}
+      onCreateProjectFromTasks={createProjectFromTasks}
+      identifier={identifier}
+      onProjectCreate={projectActions.create}
+      onProjectArchive={projectActions.archive}
+      onProjectRestore={projectActions.restore}
+      onProjectDelete={projectActions.del}
+      onProjectToggleCompleted={projectActions.toggleCompleted}
+      onProjectUpdate={projectActions.update}
+      onProjectsRefresh={fetchProjects}
+    />
   );
 }

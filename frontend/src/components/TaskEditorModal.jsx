@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { X, Loader2 } from "lucide-react";
+import { describeProject, isProjectOptionDisabled } from "../utils/formatters";
 
 const STATUS_OPTIONS = [
   { label: "To Do", value: "todo" },
@@ -14,7 +15,13 @@ const PRIORITY_OPTIONS = [
   { label: "Low", value: "low" },
 ];
 
-export default function TaskEditorModal({ task, onClose, onSubmit, submitting }) {
+export default function TaskEditorModal({
+  task,
+  projects = [],
+  onClose,
+  onSubmit,
+  submitting,
+}) {
   const [form, setForm] = useState(getInitialState(task));
 
   useEffect(() => {
@@ -24,15 +31,16 @@ export default function TaskEditorModal({ task, onClose, onSubmit, submitting })
   if (!task) return null;
 
   const handleChange = (field) => (event) => {
-    const value =
-      event.target.type === "checkbox" ? event.target.checked : event.target.value;
-    setForm((prev) => ({ ...prev, [field]: value }));
+    setForm((prev) => ({
+      ...prev,
+      [field]: event.target.value,
+    }));
   };
 
   const handleSubmit = (event) => {
     event.preventDefault();
     if (submitting) return;
-    onSubmit?.(form);
+    onSubmit?.(transformForm(form));
   };
 
   return (
@@ -106,12 +114,42 @@ export default function TaskEditorModal({ task, onClose, onSubmit, submitting })
                 ))}
               </select>
             </Field>
+            <Field label="Дедлайн">
+              <input
+                type="date"
+                value={form.deadline}
+                onChange={handleChange("deadline")}
+                className="w-full rounded-2xl border border-slate-200 px-4 py-2.5 text-sm focus:border-indigo-400 focus:outline-none"
+              />
+            </Field>
           </div>
+
+          <Field label="Проект">
+            <select
+              value={form.project_id}
+              onChange={handleChange("project_id")}
+              className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm focus:border-indigo-400 focus:outline-none"
+            >
+              <option value="">Без проекта</option>
+              {projects.map((project) => {
+                const meta = describeProject(project);
+                return (
+                  <option
+                    key={project.id}
+                    value={project.id}
+                    disabled={isProjectOptionDisabled(project)}
+                  >
+                    {meta.icon ? `${meta.icon} ` : ""}
+                    {meta.label}
+                  </option>
+                );
+              })}
+            </select>
+          </Field>
 
           <div className="flex items-center justify-between border-t border-slate-100 pt-5">
             <span className="text-xs text-slate-400">
-              Создано:{" "}
-              {task.created_at ? new Date(task.created_at).toLocaleDateString() : "—"}
+              Создано: {task.created_at ? new Date(task.created_at).toLocaleDateString() : "—"}
             </span>
             <div className="flex gap-2">
               <button
@@ -154,6 +192,8 @@ function getInitialState(task) {
       status: "todo",
       priority: "medium",
       stage: "",
+      project_id: "",
+      deadline: "",
     };
   }
 
@@ -163,5 +203,19 @@ function getInitialState(task) {
     status: task.status || "todo",
     priority: task.priority || "medium",
     stage: task.stage || "",
+    project_id: task.project_id ? String(task.project_id) : "",
+    deadline: task.deadline ? task.deadline.slice(0, 10) : "",
+  };
+}
+
+function transformForm(form) {
+  return {
+    title: form.title,
+    description: form.description,
+    status: form.status,
+    priority: form.priority,
+    stage: form.stage,
+    project_id: form.project_id ? Number(form.project_id) : null,
+    deadline: form.deadline ? new Date(`${form.deadline}T00:00:00Z`).toISOString() : null,
   };
 }

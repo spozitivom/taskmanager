@@ -33,6 +33,12 @@ export async function request(url, options = {}) {
 
   // Если статус ответа не 2xx → выбрасываем ошибку
   if (!res.ok) {
+    if (res.status === 401) {
+      localStorage.removeItem("token");
+      // Перенаправляем на страницу логина
+      window.location.reload();
+      throw new Error("unauthorized");
+    }
     throw new Error((await res.text()) || `HTTP ${res.status}`);
   }
 

@@ -1,6 +1,7 @@
 import React from "react";
 import { Play, Check, RotateCcw, Trash2, Flag, Calendar, Pencil } from "lucide-react";
 import * as api from "../api";
+import { describeProject, formatDeadline } from "../utils/formatters";
 
 const STATUS_META = {
   todo: { label: "To Do", tone: "bg-slate-100 text-slate-600" },
@@ -37,6 +38,8 @@ export default function TaskCard({ task, setTasks, onEditTask }) {
   const created = task.created_at
     ? new Date(task.created_at).toLocaleDateString()
     : "—";
+  const projectMeta = describeProject(task.project);
+  const deadlineMeta = formatDeadline(task.deadline);
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:shadow-md">
@@ -78,9 +81,19 @@ export default function TaskCard({ task, setTasks, onEditTask }) {
         <Badge tone={PRIORITY_META[task.priority]?.tone} icon={<Flag className="h-3 w-3" />}>
           {PRIORITY_META[task.priority]?.label || "—"}
         </Badge>
+        <span
+          className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-0.5 text-slate-500 ring-1 ring-slate-200"
+          title={projectMeta.tooltip}
+        >
+          {projectMeta.icon && <span>{projectMeta.icon}</span>}
+          <span className={projectMeta.tone}>{projectMeta.label}</span>
+        </span>
         <span className="inline-flex items-center gap-1 rounded-full bg-white px-2 py-0.5 text-slate-400 ring-1 ring-slate-200">
           <Calendar className="h-3 w-3" />
           {created}
+        </span>
+        <span className={`inline-flex items-center gap-1 rounded-full bg-white px-2 py-0.5 ring-1 ring-slate-200 ${deadlineMeta.tone}`}>
+          ⏰ {deadlineMeta.text}
         </span>
       </div>
 
