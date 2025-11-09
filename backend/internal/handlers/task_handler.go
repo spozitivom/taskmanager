@@ -12,11 +12,14 @@ import (
 
 // TaskHandler — слой HTTP-обработчиков поверх бизнес-логики (TaskService)
 type TaskHandler struct {
-	Service *services.TaskService
+	Service  *services.TaskService
+	Projects *services.ProjectService
 }
 
 // Конструктор
-func NewTaskHandler(s *services.TaskService) *TaskHandler { return &TaskHandler{Service: s} }
+func NewTaskHandler(s *services.TaskService, p *services.ProjectService) *TaskHandler {
+	return &TaskHandler{Service: s, Projects: p}
+}
 
 // Регистрация маршрутов.
 // Важно: добавлен PATCH для частичных обновлений.
@@ -29,6 +32,9 @@ func (h *TaskHandler) RegisterRoutes(r *gin.Engine) {
 		api.PUT("/tasks/:id", h.UpdateTask)    // совместимость со старым контрактом
 		api.PATCH("/tasks/:id", h.PatchTask)   // частичные обновления через TaskPatch
 		api.DELETE("/tasks/:id", h.DeleteTask) // 204 No Content — без тела
+		api.POST("/tasks/bulk/delete", h.BulkDelete)
+		api.POST("/tasks/bulk/status", h.BulkStatus)
+		api.POST("/tasks/bulk/assign", h.BulkAssign)
 	}
 }
 
@@ -44,8 +50,18 @@ func (h *TaskHandler) GetTasks(c *gin.Context) {
 	status := c.Query("status")
 	prio := c.Query("priority")
 	stage := c.Query("stage")
+	var projectID *uint
+	if pidStr := c.Query("project_id"); pidStr != "" {
+		if pidStr == "none" {
+			zero := uint(0)
+			projectID = &zero
+		} else if pid, err := strconv.ParseUint(pidStr, 10, 64); err == nil {
+			parsed := uint(pid)
+			projectID = &parsed
+		}
+	}
 
-	tasks, err := h.Service.GetFilteredTasks(sort, status, prio, stage)
+	tasks, err := h.Service.GetFilteredTasks(sort, status, prio, stage, projectID)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch tasks"})
 		return
@@ -59,6 +75,9 @@ func (h *TaskHandler) GetTasks(c *gin.Context) {
 // internal/handlers/task_handler.go
 
 func (h *TaskHandler) CreateTask(c *gin.Context) {
+	if _, ok := userIDFromContext(c); !ok {
+		return
+	}
 	var t models.Task
 	if err := c.ShouldBindJSON(&t); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid payload"})
@@ -77,6 +96,9 @@ func (h *TaskHandler) CreateTask(c *gin.Context) {
 // Полное обновление (оставлено для совместимости).
 // ВАЖНО: в сервисе оно теперь проксируется в Patch-логику, чтобы не затирать поля.
 func (h *TaskHandler) UpdateTask(c *gin.Context) {
+	if _, ok := userIDFromContext(c); !ok {
+		return
+	}
 	id, ok := parseID(c)
 	if !ok {
 		return // parseID уже ответил 400
@@ -104,6 +126,9 @@ func (h *TaskHandler) UpdateTask(c *gin.Context) {
 // PATCH /api/tasks/:id
 // Частичное обновление. Меняем только присланные поля (через TaskPatch).
 func (h *TaskHandler) PatchTask(c *gin.Context) {
+	if _, ok := userIDFromContext(c); !ok {
+		return
+	}
 	id, ok := parseID(c)
 	if !ok {
 		return
@@ -131,6 +156,9 @@ func (h *TaskHandler) PatchTask(c *gin.Context) {
 // DELETE /api/tasks/:id
 // Удаление. Возвращаем 204 No Content (без тела), чтобы фронт не пытался парсить JSON.
 func (h *TaskHandler) DeleteTask(c *gin.Context) {
+	if _, ok := userIDFromContext(c); !ok {
+		return
+	}
 	id, ok := parseID(c)
 	if !ok {
 		return
@@ -138,6 +166,78 @@ func (h *TaskHandler) DeleteTask(c *gin.Context) {
 
 	if err := h.Service.DeleteTask(id); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "delete failed"})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+type bulkIDsPayload struct {
+	IDs []uint `json:"ids"`
+}
+
+type bulkStatusPayload struct {
+	IDs    []uint `json:"ids"`
+	Status string `json:"status"`
+}
+
+type bulkAssignPayload struct {
+	IDs              []uint `json:"ids"`
+	ProjectID        *uint  `json:"project_id"`
+	ReassignAttached bool   `json:"reassign_attached"`
+}
+
+func (h *TaskHandler) BulkDelete(c *gin.Context) {
+	if _, ok := userIDFromContext(c); !ok {
+		return
+	}
+	var payload bulkIDsPayload
+	if err := c.ShouldBindJSON(&payload); err != nil || len(payload.IDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ids are required"})
+		return
+	}
+	if err := h.Service.BulkDelete(payload.IDs); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+func (h *TaskHandler) BulkStatus(c *gin.Context) {
+	if _, ok := userIDFromContext(c); !ok {
+		return
+	}
+	var payload bulkStatusPayload
+	if err := c.ShouldBindJSON(&payload); err != nil || len(payload.IDs) == 0 || payload.Status == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ids and status are required"})
+		return
+	}
+	if err := h.Service.BulkSetStatus(payload.IDs, payload.Status); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.Status(http.StatusNoContent)
+}
+
+func (h *TaskHandler) BulkAssign(c *gin.Context) {
+	userID, ok := userIDFromContext(c)
+	if !ok {
+		return
+	}
+	var payload bulkAssignPayload
+	if err := c.ShouldBindJSON(&payload); err != nil || len(payload.IDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "ids are required"})
+		return
+	}
+	if payload.ProjectID == nil {
+		if err := h.Service.UnassignFromProject(payload.IDs); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.Status(http.StatusNoContent)
+		return
+	}
+	if err := h.Projects.AssignTasks(userID, *payload.ProjectID, payload.IDs, payload.ReassignAttached); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 	c.Status(http.StatusNoContent)

@@ -24,8 +24,8 @@ func (s *TaskService) GetTasks(sortOrder string) ([]models.Task, error) {
 }
 
 // GetFilteredTasks — получить задачи с учётом фильтров.
-func (s *TaskService) GetFilteredTasks(sortOrder, status, priority, stage string) ([]models.Task, error) {
-	return s.storage.GetFiltered(sortOrder, status, priority, stage)
+func (s *TaskService) GetFilteredTasks(sortOrder, status, priority, stage string, projectID *uint) ([]models.Task, error) {
+	return s.storage.GetFiltered(sortOrder, status, priority, stage, projectID)
 }
 
 // GetTaskByID ищет и возвращает задачу по её ID.
@@ -98,4 +98,40 @@ func (s *TaskService) PatchTask(id uint, patch models.TaskPatch) (*models.Task, 
 // DeleteTask удаляет задачу по ID.
 func (s *TaskService) DeleteTask(id uint) error {
 	return s.storage.Delete(id)
+}
+
+// BulkDelete — пакетное удаление задач.
+func (s *TaskService) BulkDelete(ids []uint) error {
+	return s.storage.BulkDelete(ids)
+}
+
+// BulkSetStatus обновляет статус сразу у нескольких задач.
+func (s *TaskService) BulkSetStatus(ids []uint, status string) error {
+	tasks, err := s.storage.GetByIDs(ids)
+	if err != nil {
+		return err
+	}
+	if len(tasks) == 0 {
+		return nil
+	}
+	nextStatus, err := models.NormalizeTaskStatus(status)
+	if err != nil {
+		return err
+	}
+	for i := range tasks {
+		tasks[i].ApplyStatusTransition(nextStatus)
+	}
+	return s.storage.SaveAll(tasks)
+}
+
+// UnassignFromProject убирает связи задач с проектом.
+func (s *TaskService) UnassignFromProject(ids []uint) error {
+	tasks, err := s.storage.GetByIDs(ids)
+	if err != nil {
+		return err
+	}
+	for i := range tasks {
+		tasks[i].ProjectID = nil
+	}
+	return s.storage.SaveAll(tasks)
 }

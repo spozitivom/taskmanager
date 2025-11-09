@@ -922,21 +922,24 @@ function ViewDropdown({ viewMode, onChange }) {
       </button>
       {open && (
         <div className="absolute z-50 mt-2 w-48 rounded-xl bg-white border border-slate-200 shadow-xl shadow-slate-100 p-1">
-          {options.map(({ value, label, icon: Icon }) => (
-            <button
-              key={value}
-              onClick={() => {
-                onChange(value);
-                setOpen(false);
-              }}
-              className={`w-full text-left px-3 py-2 rounded-lg hover:bg-slate-50 text-sm flex items-center gap-2 ${
-                viewMode === value ? "bg-slate-50 text-indigo-600" : ""
-              }`}
-            >
-              <Icon className="h-4 w-4" />
-              {label}
-            </button>
-          ))}
+          {options.map(({ value, label, icon }) => {
+            const IconComponent = icon;
+            return (
+              <button
+                key={value}
+                onClick={() => {
+                  onChange(value);
+                  setOpen(false);
+                }}
+                className={`w-full text-left px-3 py-2 rounded-lg hover:bg-slate-50 text-sm flex items-center gap-2 ${
+                  viewMode === value ? "bg-slate-50 text-indigo-600" : ""
+                }`}
+              >
+                <IconComponent className="h-4 w-4" />
+                {label}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

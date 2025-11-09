@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 )
 
@@ -53,21 +54,23 @@ type Project struct {
 	Deadline    *time.Time     `json:"deadline,omitempty"`
 	ProgressPct int            `gorm:"type:smallint;default:0" json:"progress_pct"`
 	TasksLimit  int            `gorm:"default:100" json:"tasks_limit"`
-	Tags        string         `gorm:"type:text" json:"tags,omitempty"`
+	Tags        datatypes.JSON `gorm:"type:jsonb" json:"tags,omitempty"`
 	ArchivedAt  *time.Time     `gorm:"index" json:"archived_at,omitempty"`
 	CreatedAt   time.Time      `gorm:"autoCreateTime" json:"created_at"`
 	UpdatedAt   time.Time      `gorm:"autoUpdateTime" json:"updated_at"`
 	DeletedAt   gorm.DeletedAt `gorm:"index" json:"deleted_at,omitempty"`
 
-	Members []ProjectMember `json:"members,omitempty"`
+	Members    []ProjectMember `json:"members,omitempty"`
+	TasksCount int64           `gorm:"-" json:"tasks_count"`
 }
 
 type ProjectMember struct {
-	ProjectID uint      `gorm:"primaryKey" json:"project_id"`
-	UserID    uint      `gorm:"primaryKey" json:"user_id"`
-	Role      string    `gorm:"type:varchar(16);not null" json:"role"`
-	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+	ProjectID   uint              `gorm:"primaryKey" json:"project_id"`
+	UserID      uint              `gorm:"primaryKey" json:"user_id"`
+	Role        string            `gorm:"type:varchar(16);not null" json:"role"`
+	Permissions datatypes.JSONMap `gorm:"type:jsonb" json:"permissions,omitempty"`
+	CreatedAt   time.Time         `gorm:"autoCreateTime" json:"created_at"`
+	UpdatedAt   time.Time         `gorm:"autoUpdateTime" json:"updated_at"`
 }
 
 func NormalizeProjectStatus(status string) (string, error) {

@@ -6,6 +6,9 @@ bin/
 
 # Environment
 .env
+.env.*
+*.env
+**/.env
 
 # IDEs and editors
 .vscode/
