@@ -1,95 +1,97 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import * as api from "./api";
 import TaskDashboard from "./components/TaskDashboard";
 
 export default function App() {
-  // --------------------
-  // Состояния
-  // --------------------
   const [tasks, setTasks] = useState([]);
   const [title, setTitle] = useState("");
   const [sort, setSort] = useState("desc");
   const [status, setStatus] = useState("");
   const [priority, setPriority] = useState("");
   const [stage, setStage] = useState("");
+  const [projectFilter, setProjectFilter] = useState("");
+  const [projects, setProjects] = useState([]);
 
-  // Авторизация
   const [identifier, setIdentifier] = useState("dima");
   const [password, setPassword] = useState("123456");
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [loading, setLoading] = useState(true); // проверка токена при монтировании
+  const [loading, setLoading] = useState(true);
 
-  // --------------------
-  // Проверка токена при старте
-  // --------------------
   useEffect(() => {
     const token = localStorage.getItem("token");
-    if (token) {
-      // Пробуем загрузить задачи
-      api
-        .getTasks()
-        .then(() => setIsLoggedIn(true))
-        .catch(() => {
-          localStorage.removeItem("token"); // если токен невалидный — очищаем
-          setIsLoggedIn(false);
-        })
-        .finally(() => setLoading(false));
-    } else {
+    if (!token) {
       setLoading(false);
+      return;
     }
+    api
+      .getTasks()
+      .then(() => setIsLoggedIn(true))
+      .catch(() => {
+        localStorage.removeItem("token");
+        setIsLoggedIn(false);
+      })
+      .finally(() => setLoading(false));
   }, []);
 
-  // --------------------
-  // Загрузка задач с фильтрами и сортировкой
-  // --------------------
-  const fetchTasks = () => {
+  const fetchProjects = useCallback(() => {
+    api
+      .getProjects(false)
+      .then(setProjects)
+      .catch((err) => console.error("Ошибка загрузки проектов:", err.message));
+  }, []);
+
+  const fetchTasks = useCallback(() => {
     const params = new URLSearchParams();
     if (sort) params.append("sort", sort);
     if (status) params.append("status", status);
     if (priority) params.append("priority", priority);
     if (stage) params.append("stage", stage);
+    if (projectFilter === "none") {
+      params.append("project_id", 0);
+    } else if (projectFilter) {
+      params.append("project_id", projectFilter);
+    }
 
     api
       .getTasks(params.toString())
       .then(setTasks)
       .catch((err) => console.error("Ошибка загрузки задач:", err.message));
-  };
+  }, [sort, status, priority, stage, projectFilter]);
 
   useEffect(() => {
-    if (isLoggedIn) fetchTasks();
-  }, [sort, status, priority, stage, isLoggedIn]);
+    if (isLoggedIn) {
+      fetchTasks();
+      fetchProjects();
+    }
+  }, [isLoggedIn, fetchTasks, fetchProjects]);
 
-  // --------------------
-  // Логин через форму
-  // --------------------
   const handleLogin = async () => {
     if (!identifier.trim() || !password.trim()) {
       alert("Введите email/username и пароль");
       return;
     }
-
     try {
-      await api.login(identifier, password); // сохраняет токен в localStorage
+      await api.login(identifier, password);
       setIsLoggedIn(true);
       fetchTasks();
+      fetchProjects();
     } catch (err) {
       console.error("Ошибка логина:", err.message);
       alert("Неверный логин или пароль");
     }
   };
 
-  // --------------------
-  // CRUD задачи
-  // --------------------
   const addTask = () => {
     if (!title.trim()) return;
+    const projectId = projectFilter && projectFilter !== "none" ? Number(projectFilter) : null;
     api
       .createTask({
         title,
         description: "",
         status: "todo",
         priority: "medium",
-        stage: "todo", // колонка Kanban по умолчанию
+        stage: "todo",
+        project_id: projectId,
       })
       .then((t) => {
         setTasks((prev) => [t, ...prev]);
@@ -102,9 +104,7 @@ export default function App() {
     api
       .updateTask(id, data)
       .then((updated) => {
-        setTasks((prev) =>
-          prev.map((task) => (task.id === updated.id ? updated : task))
-        );
+        setTasks((prev) => prev.map((task) => (task.id === updated.id ? updated : task)));
         return updated;
       })
       .catch((err) => {
@@ -112,26 +112,82 @@ export default function App() {
         throw err;
       });
 
-  const toggle = (task) => {
-    const markCompleted = task.status !== "completed";
-    const nextStatus = markCompleted
-      ? "completed"
-      : task.previous_status || "todo";
-    return updateTaskFields(task.id, { status: nextStatus });
-  };
 
   const remove = (id) =>
     api
       .deleteTask(id)
-      .then(() => setTasks((prev) => prev.filter((x) => x.id !== id)));
+      .then(() => setTasks((prev) => prev.filter((t) => t.id !== id)));
 
-  // --------------------
-  // Рендер
-  // --------------------
+  const bulkDelete = async (ids) => {
+    await api.bulkDeleteTasks(ids);
+    fetchTasks();
+  };
+
+  const bulkComplete = async (ids) => {
+    await api.bulkStatusTasks(ids, "completed");
+    fetchTasks();
+  };
+
+  const bulkAssign = async ({ ids, projectId, reassignAttached }) => {
+    await api.bulkAssignTasks({
+      ids,
+      project_id: projectId ?? null,
+      reassign_attached: Boolean(reassignAttached),
+    });
+    fetchTasks();
+  };
+
+  const createProjectFromTasks = async ({ project, ids, reassignAttached }) => {
+    await api.createProjectFromTasks({
+      project: {
+        title: project.title,
+        description: project.description,
+        status: "active",
+        priority: project.priority || "medium",
+      },
+      task_ids: ids,
+      reassign_attached: Boolean(reassignAttached),
+    });
+    fetchProjects();
+    fetchTasks();
+  };
+
+  const projectActions = useMemo(
+    () => ({
+      create: async (payload) => {
+        await api.createProject(payload);
+        fetchProjects();
+      },
+      archive: async (id) => {
+        await api.archiveProject(id);
+        fetchProjects();
+        fetchTasks();
+      },
+      restore: async (id) => {
+        await api.restoreProject(id);
+        fetchProjects();
+      },
+      del: async (id) => {
+        await api.deleteProject(id);
+        fetchProjects();
+        fetchTasks();
+      },
+      toggleCompleted: async (id, cascade) => {
+        await api.toggleProjectCompleted(id, cascade);
+        fetchProjects();
+        fetchTasks();
+      },
+      update: async (id, payload) => {
+        await api.updateProject(id, payload);
+        fetchProjects();
+        fetchTasks();
+      },
+    }),
+    [fetchProjects, fetchTasks]
+  );
+
   if (loading) {
-    return (
-      <div className="mx-auto max-w-3xl p-6">Проверка авторизации...</div>
-    );
+    return <div className="mx-auto max-w-3xl p-6">Проверка авторизации...</div>;
   }
 
   if (!isLoggedIn) {
@@ -149,12 +205,9 @@ export default function App() {
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="border p-2 mb-2 w-full"
+          className="border p-2 mb-4 w-full"
         />
-        <button
-          onClick={handleLogin}
-          className="bg-blue-600 text-white px-4 py-2 rounded w-full"
-        >
+        <button onClick={handleLogin} className="bg-blue-600 text-white px-4 py-2 rounded w-full">
           Войти
         </button>
       </div>
@@ -168,7 +221,6 @@ export default function App() {
       title={title}
       setTitle={setTitle}
       onAddTask={addTask}
-      onToggleTask={toggle}
       onDeleteTask={remove}
       onUpdateTask={updateTaskFields}
       statusFilter={status}
@@ -179,7 +231,21 @@ export default function App() {
       setStageFilter={setStage}
       sortOrder={sort}
       setSortOrder={setSort}
+      projects={projects}
+      projectFilter={projectFilter}
+      setProjectFilter={setProjectFilter}
+      onBulkDelete={bulkDelete}
+      onBulkComplete={bulkComplete}
+      onBulkAssign={bulkAssign}
+      onCreateProjectFromTasks={createProjectFromTasks}
       identifier={identifier}
+      onProjectCreate={projectActions.create}
+      onProjectArchive={projectActions.archive}
+      onProjectRestore={projectActions.restore}
+      onProjectDelete={projectActions.del}
+      onProjectToggleCompleted={projectActions.toggleCompleted}
+      onProjectUpdate={projectActions.update}
+      onProjectsRefresh={fetchProjects}
     />
   );
 }
