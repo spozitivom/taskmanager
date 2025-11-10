@@ -627,7 +627,7 @@ export default function TaskDashboard({
   );
 }
 
-function TaskTable({
+export function TaskTable({
   tasks,
   visibleColumns,
   onDeleteTask,
@@ -987,7 +987,7 @@ function DataDropdown({ onImport, onExport }) {
   );
 }
 
-function ColumnsDropdown({ visibleColumns, onToggle, onReset }) {
+export function ColumnsDropdown({ visibleColumns, onToggle, onReset }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef(null);
   useOutsideClose(containerRef, () => setOpen(false), open);
