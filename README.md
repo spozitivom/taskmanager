@@ -21,6 +21,13 @@ npm install
 npm run dev
 ```
 
+## ✅ Проверки и CI
+- Backend тесты: `cd backend && go test ./...`
+- Backend lint: `cd backend && golangci-lint run` (устанавливается в CI; локально можно через `go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest`)
+- Frontend lint: `cd frontend && npm run lint`
+- Frontend тесты: `cd frontend && npm test -- --watch=false`
+- CI (локально): `GOCACHE=$(pwd)/.gocache go test -count=1 ./...` и `npm test -- --watch=false` — соответствует пайплайну GitHub Actions.
+
 ## ⚙️ Настройка столбцов задач и Projects UI
 - В таблице задач доступно меню `⚙️ Колонки` в правой части панели управления. Через него можно включать/выключать вывод столбцов (`Задача`, `Статус`, `Приоритет`, `Этап`, `Проект`, `Создана`, `Дедлайн`). Выбор сохраняется в `localStorage` под ключом `tm_table_columns_v1`.
 - Компоненты задач и проектов используют вспомогательный модуль `frontend/src/utils/formatters.js`, где описаны бейджи статусов, подсказки и подсветка дедлайнов. При добавлении новых статусов или правил обновляйте этот файл, чтобы UI оставался единообразным.

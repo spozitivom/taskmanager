@@ -1,14 +1,12 @@
-import { useEffect, useRef, useState } from "react";
-import { Globe2, Loader2, LogOut, Moon, ShieldCheck, Sun, Trash2, Upload } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Globe2, Loader2, LogOut, Moon, ShieldCheck, Sun, Trash2, Upload, X } from "lucide-react";
 import * as api from "../api";
 
 const AVATAR_LIMIT = 2 * 1024 * 1024; // 2 МБ
 
 export default function UserSettings({ user, onUserChange, onLogout }) {
   const [profileForm, setProfileForm] = useState({ fullName: "", email: "" });
-  const [avatarPreview, setAvatarPreview] = useState("");
-  const [avatarPayload, setAvatarPayload] = useState(undefined);
-  const [removeAvatar, setRemoveAvatar] = useState(false);
+  const avatar = useAvatarUpload({ initialUrl: user?.avatar_url });
   const [profileStatus, setProfileStatus] = useState(null);
   const [profileLoading, setProfileLoading] = useState(false);
 
@@ -23,6 +21,7 @@ export default function UserSettings({ user, onUserChange, onLogout }) {
   const [deleteConfirm, setDeleteConfirm] = useState("");
   const [deleteStatus, setDeleteStatus] = useState(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [deleteModal, setDeleteModal] = useState(false);
 
   const fileInputRef = useRef(null);
 
@@ -31,53 +30,28 @@ export default function UserSettings({ user, onUserChange, onLogout }) {
       fullName: user?.full_name || "",
       email: user?.email || "",
     });
-    setAvatarPreview(user?.avatar_url || "");
-    setAvatarPayload(undefined);
-    setRemoveAvatar(false);
+    avatar.reset(user?.avatar_url || "");
     setSettingsForm({
       language: user?.language || "en",
       theme: user?.theme || "light",
     });
-  }, [user]);
-
-  const handleAvatarSelect = (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
-      setProfileStatus({ type: "error", message: "Поддерживаются jpg, png или webp" });
-      return;
-    }
-    if (file.size > AVATAR_LIMIT) {
-      setProfileStatus({ type: "error", message: "Аватар должен быть не больше 2 МБ" });
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      setAvatarPreview(reader.result?.toString() || "");
-      setAvatarPayload(reader.result?.toString());
-      setRemoveAvatar(false);
-      setProfileStatus(null);
-    };
-    reader.readAsDataURL(file);
-  };
+  }, [user, avatar]);
 
   const handleProfileSave = async () => {
     setProfileStatus(null);
     setProfileLoading(true);
     try {
       const payload = { full_name: profileForm.fullName };
-      if (avatarPayload !== undefined) {
-        payload.avatar = avatarPayload;
+      if (avatar.payload !== undefined) {
+        payload.avatar = avatar.payload;
       }
-      if (removeAvatar) {
+      if (avatar.remove) {
         payload.remove_avatar = true;
       }
       const updated = await api.updateProfile(payload);
       onUserChange?.(updated);
       setProfileStatus({ type: "success", message: "Профиль сохранён" });
-      setAvatarPayload(undefined);
-      setRemoveAvatar(false);
+      avatar.markSaved();
     } catch (err) {
       setProfileStatus({ type: "error", message: err.message });
     } finally {
@@ -135,7 +109,10 @@ export default function UserSettings({ user, onUserChange, onLogout }) {
     }
   };
 
-  const canDelete = deleteConfirm === "DELETE" || deleteConfirm === (user?.email || "");
+  const canDelete = useMemo(
+    () => deleteConfirm === "DELETE" || deleteConfirm === (user?.email || ""),
+    [deleteConfirm, user?.email]
+  );
 
   return (
     <div className="space-y-6">
@@ -150,9 +127,9 @@ export default function UserSettings({ user, onUserChange, onLogout }) {
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
         <div className="flex flex-wrap items-center gap-4">
           <div className="relative">
-            {avatarPreview ? (
+            {avatar.preview ? (
               <img
-                src={avatarPreview}
+                src={avatar.preview}
                 alt="Avatar"
                 className="h-20 w-20 rounded-full object-cover ring-2 ring-indigo-100"
                 referrerPolicy="no-referrer"
@@ -167,7 +144,7 @@ export default function UserSettings({ user, onUserChange, onLogout }) {
               type="file"
               className="hidden"
               accept="image/png,image/jpeg,image/webp"
-              onChange={handleAvatarSelect}
+              onChange={avatar.handleSelect(setProfileStatus)}
             />
           </div>
           <div className="space-x-2">
@@ -178,11 +155,7 @@ export default function UserSettings({ user, onUserChange, onLogout }) {
               <Upload className="h-4 w-4" /> Загрузить
             </button>
             <button
-              onClick={() => {
-                setAvatarPreview("");
-                setAvatarPayload(undefined);
-                setRemoveAvatar(true);
-              }}
+              onClick={() => avatar.reset("")}
               className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
             >
               Сбросить
@@ -355,11 +328,10 @@ export default function UserSettings({ user, onUserChange, onLogout }) {
                 placeholder="DELETE"
               />
               <button
-                onClick={handleDeleteAccount}
-                disabled={!canDelete || deleteLoading}
+                onClick={() => setDeleteModal(true)}
+                disabled={!canDelete}
                 className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
               >
-                {deleteLoading && <Loader2 className="h-4 w-4 animate-spin" />}
                 <Trash2 className="h-4 w-4" /> Удалить аккаунт
               </button>
             </div>
@@ -367,6 +339,53 @@ export default function UserSettings({ user, onUserChange, onLogout }) {
           </div>
         </div>
       </section>
+
+      {deleteModal && (
+        <div className="fixed inset-0 z-[1400] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h4 className="text-lg font-semibold text-slate-800">Подтверждение удаления</h4>
+                <p className="text-sm text-slate-500">Это действие необратимо.</p>
+              </div>
+              <button
+                onClick={() => setDeleteModal(false)}
+                className="rounded-full border border-slate-200 p-2 text-slate-400 hover:bg-slate-50"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-2">
+              <p className="text-sm text-slate-600">
+                Введите <span className="font-semibold">DELETE</span> или email <span className="font-semibold">{user?.email}</span> для подтверждения.
+              </p>
+              <input
+                value={deleteConfirm}
+                onChange={(e) => setDeleteConfirm(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 px-4 py-2 shadow-inner shadow-slate-50 focus:border-rose-300 focus:outline-none"
+                placeholder="DELETE"
+              />
+            </div>
+            {deleteStatus && <StatusNote status={deleteStatus} />}
+            <div className="flex items-center justify-end gap-2">
+              <button
+                onClick={() => setDeleteModal(false)}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
+              >
+                Отмена
+              </button>
+              <button
+                onClick={handleDeleteAccount}
+                disabled={!canDelete || deleteLoading}
+                className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+              >
+                {deleteLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+                Удалить аккаунт
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -397,4 +416,46 @@ function PasswordField({ label, value, onChange }) {
       />
     </label>
   );
+}
+
+function useAvatarUpload({ initialUrl = "" } = {}) {
+  const [preview, setPreview] = useState(initialUrl || "");
+  const [payload, setPayload] = useState(undefined);
+  const [remove, setRemove] = useState(false);
+
+  const handleSelect = (setStatus) => (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      setStatus?.({ type: "error", message: "Поддерживаются jpg, png или webp" });
+      return;
+    }
+    if (file.size > AVATAR_LIMIT) {
+      setStatus?.({ type: "error", message: "Аватар должен быть не больше 2 МБ" });
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const data = reader.result?.toString() || "";
+      setPreview(data);
+      setPayload(data);
+      setRemove(false);
+      setStatus?.(null);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const reset = (nextUrl = "") => {
+    setPreview(nextUrl);
+    setPayload(undefined);
+    setRemove(!nextUrl);
+  };
+
+  const markSaved = () => {
+    setPayload(undefined);
+    setRemove(false);
+  };
+
+  return { preview, payload, remove, handleSelect, reset, markSaved };
 }

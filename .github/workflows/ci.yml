@@ -31,8 +31,8 @@ jobs:
             ${{ runner.os }}-go-
       - name: Prepare Go cache dir
         run: mkdir -p "$GOCACHE"
-      - name: Run tests
-        run: go test ./...
+      - name: Run tests (coverage)
+        run: go test -count=1 -cover ./...
         working-directory: backend
       - name: GolangCI-Lint
         uses: golangci/golangci-lint-action@v6
@@ -56,8 +56,8 @@ jobs:
       - name: Lint
         run: npm run lint
         working-directory: frontend
-      - name: Test
-        run: npm test
+      - name: Test (coverage)
+        run: npm test -- --coverage -- --watch=false
         working-directory: frontend
       - name: Build
         run: npm run build

@@ -12,8 +12,13 @@ export default function App() {
   const [projectFilter, setProjectFilter] = useState("");
   const [projects, setProjects] = useState([]);
 
-  const [identifier, setIdentifier] = useState("dima");
-  const [password, setPassword] = useState("123456");
+  const [identifier, setIdentifier] = useState("");
+  const [password, setPassword] = useState("");
+  const [mode, setMode] = useState("login");
+  const [regEmail, setRegEmail] = useState("");
+  const [regUsername, setRegUsername] = useState("");
+  const [regPassword, setRegPassword] = useState("");
+  const [regConfirm, setRegConfirm] = useState("");
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState(null);
@@ -86,6 +91,36 @@ export default function App() {
       alert("Неверный логин или пароль");
     }
   };
+
+  const handleRegister = async () => {
+    if (!regEmail.trim() && !regUsername.trim()) {
+      alert("Введите email или имя пользователя");
+      return;
+    }
+    if (!regPassword.trim()) {
+      alert("Введите пароль");
+      return;
+    }
+    if (regPassword !== regConfirm) {
+      alert("Пароли не совпадают");
+      return;
+    }
+    try {
+      await api.register({
+        email: regEmail || undefined,
+        username: regUsername || undefined,
+        password: regPassword,
+      });
+      await api.login(regEmail || regUsername, regPassword);
+      await bootstrap();
+    } catch (err) {
+      alert(err.message || "Ошибка регистрации");
+    }
+  };
+
+  const loginDisabled = !identifier.trim() || !password.trim();
+  const registerDisabled =
+    (!regEmail.trim() && !regUsername.trim()) || !regPassword.trim() || regPassword !== regConfirm;
 
   const handleLogout = () => {
     api.logout();
@@ -251,23 +286,84 @@ export default function App() {
   if (!isLoggedIn) {
     return (
       <div className="mx-auto max-w-3xl p-6">
-        <h1 className="text-2xl font-bold mb-4">Task Manager — Вход</h1>
-        <input
-          placeholder="Email или имя пользователя"
-          value={identifier}
-          onChange={(e) => setIdentifier(e.target.value)}
-          className="border p-2 mb-2 w-full"
-        />
-        <input
-          placeholder="Password"
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="border p-2 mb-4 w-full"
-        />
-        <button onClick={handleLogin} className="bg-blue-600 text-white px-4 py-2 rounded w-full">
-          Войти
-        </button>
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-2xl font-bold">Task Manager</h1>
+          <div className="flex gap-2 text-sm">
+            <button
+              onClick={() => setMode("login")}
+              className={`px-3 py-1 rounded-lg border ${mode === "login" ? "bg-blue-600 text-white border-blue-600" : "border-slate-200"}`}
+            >
+              Вход
+            </button>
+            <button
+              onClick={() => setMode("register")}
+              className={`px-3 py-1 rounded-lg border ${mode === "register" ? "bg-blue-600 text-white border-blue-600" : "border-slate-200"}`}
+            >
+              Регистрация
+            </button>
+          </div>
+        </div>
+
+        {mode === "login" ? (
+          <>
+            <input
+              placeholder="Email или имя пользователя"
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
+              className="border p-2 mb-2 w-full rounded"
+            />
+            <input
+              placeholder="Пароль"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="border p-2 mb-4 w-full rounded"
+            />
+            <button
+              onClick={handleLogin}
+              disabled={loginDisabled}
+              className="bg-blue-600 text-white px-4 py-2 rounded w-full disabled:opacity-60"
+            >
+              Войти
+            </button>
+          </>
+        ) : (
+          <>
+            <input
+              placeholder="Email"
+              value={regEmail}
+              onChange={(e) => setRegEmail(e.target.value)}
+              className="border p-2 mb-2 w-full rounded"
+            />
+            <input
+              placeholder="Имя пользователя"
+              value={regUsername}
+              onChange={(e) => setRegUsername(e.target.value)}
+              className="border p-2 mb-2 w-full rounded"
+            />
+            <input
+              placeholder="Пароль"
+              type="password"
+              value={regPassword}
+              onChange={(e) => setRegPassword(e.target.value)}
+              className="border p-2 mb-2 w-full rounded"
+            />
+            <input
+              placeholder="Подтверждение пароля"
+              type="password"
+              value={regConfirm}
+              onChange={(e) => setRegConfirm(e.target.value)}
+              className="border p-2 mb-4 w-full rounded"
+            />
+            <button
+              onClick={handleRegister}
+              disabled={registerDisabled}
+              className="bg-green-600 text-white px-4 py-2 rounded w-full disabled:opacity-60"
+            >
+              Зарегистрироваться
+            </button>
+          </>
+        )}
       </div>
     );
   }
