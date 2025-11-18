@@ -31,20 +31,36 @@ export async function request(url, options = {}) {
     ...options,
   });
 
-  // Если статус ответа не 2xx → выбрасываем ошибку
+  const text = await res.text();
   if (!res.ok) {
-    if (res.status === 401) {
+    const isAuthEndpoint = url.startsWith("/auth/");
+    if (res.status === 401 && !isAuthEndpoint) {
       localStorage.removeItem("token");
-      // Перенаправляем на страницу логина
       window.location.reload();
-      throw new Error("unauthorized");
     }
-    throw new Error((await res.text()) || `HTTP ${res.status}`);
+    const message = extractErrorMessage(text) || `HTTP ${res.status}`;
+    throw new Error(message);
   }
 
-  // Если тело пустое → вернём null
-  const txt = await res.text();
-  return txt ? JSON.parse(txt) : null;
+  return text ? JSON.parse(text) : null;
+}
+
+function extractErrorMessage(payload) {
+  if (!payload) {
+    return "";
+  }
+  try {
+    const parsed = JSON.parse(payload);
+    if (typeof parsed?.error === "string" && parsed.error.trim()) {
+      return parsed.error;
+    }
+    if (typeof parsed?.message === "string" && parsed.message.trim()) {
+      return parsed.message;
+    }
+  } catch (err) {
+    // ignore JSON parse errors — fall back to raw text
+  }
+  return payload;
 }
 
 /* ----------  CRUD Задач ---------- */
@@ -103,8 +119,21 @@ export const deleteProject = (id) =>
 export const toggleProjectCompleted = (id, cascade = "cancel_unfinished") =>
   request(`/projects/${id}/toggle-completed?cascade=${cascade}`, { method: "POST" });
 
-export const createProjectFromTasks = (payload) =>
-  request("/projects/from-tasks", { method: "POST", body: JSON.stringify(payload) });
+/* ----------  Профиль / Настройки ---------- */
+
+export const getProfile = () => request("/user/profile");
+
+export const updateProfile = (payload) =>
+  request("/user/profile", { method: "PATCH", body: JSON.stringify(payload) });
+
+export const updatePassword = (payload) =>
+  request("/user/password", { method: "PATCH", body: JSON.stringify(payload) });
+
+export const updateSettings = (payload) =>
+  request("/user/settings", { method: "PATCH", body: JSON.stringify(payload) });
+
+export const deleteAccount = (confirm) =>
+  request("/user", { method: "DELETE", body: JSON.stringify({ confirm }) });
 
 /* ----------  Аутентификация ---------- */
 

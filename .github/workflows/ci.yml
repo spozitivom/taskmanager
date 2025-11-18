@@ -1,5 +1,8 @@
 name: CI
 
+env:
+  GOCACHE: ${{ runner.temp }}/go-build
+
 on:
   push:
     branches:
@@ -19,6 +22,15 @@ jobs:
         with:
           go-version: "1.23"
           cache: true
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('backend/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+      - name: Prepare Go cache dir
+        run: mkdir -p "$GOCACHE"
       - name: Run tests
         run: go test ./...
         working-directory: backend

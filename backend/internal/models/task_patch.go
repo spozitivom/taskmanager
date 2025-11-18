@@ -2,12 +2,15 @@ package models
 
 // TaskPatch — DTO для частичных обновлений
 type TaskPatch struct {
-	Title       *string `json:"title,omitempty"`
-	Description *string `json:"description,omitempty"`
-	Status      *string `json:"status,omitempty"`
-	Priority    *string `json:"priority,omitempty"`
-	Stage       *string `json:"stage,omitempty"`
-	ProjectID   *uint   `json:"project_id,omitempty"`
+	Title       *string      `json:"title,omitempty"`
+	Description *string      `json:"description,omitempty"`
+	Status      *string      `json:"status,omitempty"`
+	Priority    *string      `json:"priority,omitempty"`
+	Stage       *string      `json:"stage,omitempty"`
+	ProjectID   *uint        `json:"project_id,omitempty"`
+	StartAt     OptionalTime `json:"start_at"`
+	EndAt       OptionalTime `json:"end_at"`
+	AllDay      *bool        `json:"all_day,omitempty"`
 }
 
 func (p TaskPatch) ApplyTo(t *Task) {
@@ -29,6 +32,15 @@ func (p TaskPatch) ApplyTo(t *Task) {
 	if p.ProjectID != nil {
 		t.ProjectID = p.ProjectID
 	}
+	if p.StartAt.Present {
+		t.StartAt = p.StartAt.Value
+	}
+	if p.EndAt.Present {
+		t.EndAt = p.EndAt.Value
+	}
+	if p.AllDay != nil {
+		t.AllDay = *p.AllDay
+	}
 }
 
 // IsEmpty помогает понять, пришли ли какие-либо поля в патче.
@@ -38,5 +50,8 @@ func (p TaskPatch) IsEmpty() bool {
 		p.Status == nil &&
 		p.Priority == nil &&
 		p.Stage == nil &&
-		p.ProjectID == nil
+		p.ProjectID == nil &&
+		!p.StartAt.Present &&
+		!p.EndAt.Present &&
+		p.AllDay == nil
 }

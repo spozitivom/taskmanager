@@ -22,6 +22,8 @@ import TaskImport from "./TaskImport";
 import KanbanBoard from "./KanbanBoard";
 import ProjectsView from "./ProjectsView";
 import TaskEditorModal from "./TaskEditorModal";
+import TaskCalendar from "./calendar/TaskCalendar";
+import UserSettings from "./UserSettings";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { describeProject, formatDeadline } from "../utils/formatters";
 
@@ -40,6 +42,34 @@ const PRIORITY_META = {
 
 const STATUS_WEIGHT = { todo: 0, in_progress: 1, in_review: 2, completed: 3 };
 const PRIORITY_WEIGHT = { low: 0, medium: 1, high: 2 };
+
+const VIEW_STORAGE_KEY = "tm_view_mode_v1";
+const VIEW_OPTIONS = [
+  { value: "table", label: "Список", icon: ListChecks },
+  { value: "kanban", label: "Канбан", icon: LayoutGrid },
+  { value: "calendar", label: "Календарь", icon: Calendar },
+];
+const VALID_VIEW_MODES = VIEW_OPTIONS.map((option) => option.value);
+
+const getInitialViewMode = () => {
+  if (typeof window === "undefined") {
+    return "table";
+  }
+  const params = new URLSearchParams(window.location.search);
+  const fromQuery = params.get("view");
+  if (fromQuery && VALID_VIEW_MODES.includes(fromQuery)) {
+    return fromQuery;
+  }
+  try {
+    const stored = localStorage.getItem(VIEW_STORAGE_KEY);
+    if (stored && VALID_VIEW_MODES.includes(stored)) {
+      return stored;
+    }
+  } catch (err) {
+    console.warn("Failed to read view mode", err);
+  }
+  return "table";
+};
 
 const COLUMN_STORAGE_KEY = "tm_table_columns_v1";
 const COLUMN_DEFAULTS = {
@@ -79,8 +109,10 @@ export default function TaskDashboard({
   onBulkDelete,
   onBulkComplete,
   onBulkAssign,
-  onCreateProjectFromTasks,
-  identifier,
+  onCreateTaskAtDate,
+  user,
+  onUserChange,
+  onLogout,
   onProjectCreate,
   onProjectArchive,
   onProjectRestore,
@@ -92,16 +124,18 @@ export default function TaskDashboard({
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState(null);
   const [sortDir, setSortDir] = useState(null);
-  const [viewMode, setViewMode] = useState("table");
+  const [viewMode, setViewMode] = useState(() => getInitialViewMode());
   const [mainView, setMainView] = useState("tasks");
   const taskImportRef = useRef(null);
   const [editingTask, setEditingTask] = useState(null);
   const [modalSubmitting, setModalSubmitting] = useState(false);
   const [selectedIds, setSelectedIds] = useState([]);
   const [bulkMenuOpen, setBulkMenuOpen] = useState(false);
-  const [projectModalOpen, setProjectModalOpen] = useState(false);
-  const [projectDraft, setProjectDraft] = useState({ title: "", description: "", priority: "medium" });
-  const [reassignAttached, setReassignAttached] = useState(false);
+  const [assignModalOpen, setAssignModalOpen] = useState(false);
+  const [assignMode, setAssignMode] = useState("existing");
+  const [assignSelectedProject, setAssignSelectedProject] = useState("");
+  const [assignNewProjectTitle, setAssignNewProjectTitle] = useState("");
+  const [assignSubmitting, setAssignSubmitting] = useState(false);
   const [visibleColumns, setVisibleColumns] = useState(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(COLUMN_STORAGE_KEY));
@@ -126,6 +160,29 @@ export default function TaskDashboard({
       setBulkMenuOpen(false);
     }
   }, [hasSelection]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem(VIEW_STORAGE_KEY, viewMode);
+    } catch (err) {
+      console.warn("Failed to persist view mode", err);
+    }
+    const url = new URL(window.location.href);
+    url.searchParams.set("view", viewMode);
+    const search = url.searchParams.toString();
+    const next = search ? `?${search}` : "";
+    window.history.replaceState({}, "", `${url.pathname}${next}`);
+  }, [viewMode]);
+
+  useEffect(() => {
+    if (projects.length && !assignSelectedProject) {
+      setAssignSelectedProject(String(projects[0].id));
+    }
+    if (!projects.length && assignMode === "existing") {
+      setAssignMode("new");
+    }
+  }, [projects, assignSelectedProject, assignMode]);
 
   const handleToggleColumn = (key) => {
     if (key === "title" && visibleColumns.title) {
@@ -306,8 +363,12 @@ export default function TaskDashboard({
       } else if (action === "remove-project") {
         await onBulkAssign({ ids: selectedIds, projectId: null });
         setSelectedIds([]);
-      } else if (action === "new-project") {
-        setProjectModalOpen(true);
+      } else if (action === "assign-project") {
+        const defaultExisting = projects[0] ? String(projects[0].id) : "";
+        setAssignMode(projects.length ? "existing" : "new");
+        setAssignSelectedProject(defaultExisting);
+        setAssignNewProjectTitle("");
+        setAssignModalOpen(true);
         return;
       }
     } finally {
@@ -315,21 +376,45 @@ export default function TaskDashboard({
     }
   };
 
-  const handleProjectModalSubmit = async (event) => {
+  const handleAssignProjectSubmit = async (event) => {
     event.preventDefault();
-    if (!projectDraft.title.trim()) return;
+    if (!selectedIds.length) {
+      setAssignModalOpen(false);
+      return;
+    }
     try {
-      await onCreateProjectFromTasks({
-        project: projectDraft,
-        ids: selectedIds,
-        reassignAttached,
-      });
+      setAssignSubmitting(true);
+      let projectId = null;
+      if (assignMode === "existing") {
+        if (!assignSelectedProject) {
+          setAssignSubmitting(false);
+          return;
+        }
+        projectId = Number(assignSelectedProject);
+      } else {
+        const title = assignNewProjectTitle.trim();
+        if (!title) {
+          setAssignSubmitting(false);
+          return;
+        }
+        const created = await onProjectCreate({
+          title,
+          description: "",
+          priority: "medium",
+          status: "active",
+        });
+        projectId = created?.id;
+        if (!projectId) {
+          throw new Error("Не удалось создать проект");
+        }
+      }
+      await onBulkAssign({ ids: selectedIds, projectId });
       setSelectedIds([]);
-      setProjectDraft({ title: "", description: "", priority: "medium" });
-      setReassignAttached(false);
-      setProjectModalOpen(false);
+      setAssignModalOpen(false);
     } catch (err) {
-      console.error("Не удалось создать проект", err);
+      console.error("Не удалось добавить задачи в проект", err);
+    } finally {
+      setAssignSubmitting(false);
     }
   };
 
@@ -370,20 +455,24 @@ export default function TaskDashboard({
     });
   };
 
-  const userInitial = (identifier || "User").slice(0, 1).toUpperCase();
+  const displayName = user?.full_name || user?.username || user?.email || "Гость";
+  const avatarUrl = user?.avatar_url;
+  const userInitial = (displayName || "User").slice(0, 1).toUpperCase();
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white text-slate-800">
       <header className="sticky top-0 z-40 backdrop-blur supports-[backdrop-filter]:bg-white/70 bg-white/80 border-b border-slate-200">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 h-16 flex items-center gap-3 justify-between">
-          <div className="flex items-center">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 h-auto md:h-16 py-3 md:py-0 flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-3">
             <LogoIcon className="h-[3.15rem] w-[3.15rem]" />
-            <span className="font-semibold tracking-tight text-lg ml-[5px] leading-none">
-              Taskman
-            </span>
+            <span className="font-semibold tracking-tight text-lg leading-none">Taskman</span>
           </div>
-
-          <div className="flex items-center gap-4">
+          <div className="flex-1 min-w-[220px]">
+            <div className="ml-10 lg:ml-16">
+              <ViewTabs viewMode={viewMode} onChange={setViewMode} />
+            </div>
+          </div>
+          <div className="flex items-center gap-4 ml-auto">
             <div className="relative hidden md:block">
               <input
                 value={search}
@@ -393,7 +482,13 @@ export default function TaskDashboard({
               />
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
             </div>
-            <UserMenu name={identifier} initial={userInitial} />
+            <UserMenu
+              name={displayName}
+              initial={userInitial}
+              avatarUrl={avatarUrl}
+              onOpenSettings={() => setMainView("settings")}
+              onLogout={onLogout}
+            />
           </div>
         </div>
       </header>
@@ -403,18 +498,26 @@ export default function TaskDashboard({
           <nav className="p-3 rounded-2xl bg-white/90 border border-slate-200 shadow-lg shadow-slate-100">
             <ul className="space-y-1">
               {[
-                { label: "Задачи", value: "tasks" },
-                { label: "Проекты", value: "projects" },
+                { label: "Задачи", value: "tasks", count: tasks.length },
+                { label: "Проекты", value: "projects", count: projects.length },
+                { label: "Настройки", value: "settings" },
               ].map((item) => (
                 <li key={item.value}>
                   <button
                     onClick={() => setMainView(item.value)}
-                    className={`w-full text-left flex items-center gap-2 px-3 py-2 rounded-xl text-sm hover:bg-slate-50 ${
+                    className={`w-full text-left flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-sm hover:bg-slate-50 ${
                       mainView === item.value ? "bg-slate-50 border border-slate-200" : ""
                     }`}
                   >
-                    <span className="h-2 w-2 rounded-full bg-indigo-400/60" />
-                    {item.label}
+                    <span className="flex items-center gap-2">
+                      <span className="h-2 w-2 rounded-full bg-indigo-400/60" />
+                      {item.label}
+                    </span>
+                    {item.count !== undefined && (
+                      <span className="min-w-[28px] rounded-full bg-slate-100 px-2 py-0.5 text-center text-xs font-semibold text-slate-600">
+                        {item.count}
+                      </span>
+                    )}
                   </button>
                 </li>
               ))}
@@ -423,23 +526,19 @@ export default function TaskDashboard({
         </aside>
 
         <main className="col-span-12 md:col-span-9 lg:col-span-10 space-y-4">
-              {mainView === "tasks" ? (
+          {mainView === "tasks" ? (
             <>
               <section className="rounded-2xl bg-white border border-slate-200 shadow-xl shadow-slate-100 p-4 space-y-4">
-            <div className="flex flex-wrap items-center gap-3">
-              <ViewDropdown viewMode={viewMode} onChange={setViewMode} />
-              <DataDropdown
-                onImport={() => taskImportRef.current?.open()}
-                onExport={handleExportJson}
-              />
-              <ColumnsDropdown
-                visibleColumns={visibleColumns}
-                onToggle={handleToggleColumn}
-                onReset={handleResetColumns}
-              />
-              <div className="ml-auto">
-                <FiltersDropdown
-                  statusOptions={statusOptions}
+                <div className="flex flex-wrap items-center gap-3">
+                  <DataDropdown onImport={() => taskImportRef.current?.open()} onExport={handleExportJson} />
+                  <ColumnsDropdown
+                    visibleColumns={visibleColumns}
+                    onToggle={handleToggleColumn}
+                    onReset={handleResetColumns}
+                  />
+                  <div className="ml-auto">
+                    <FiltersDropdown
+                      statusOptions={statusOptions}
                       priorityOptions={priorityOptions}
                       stageOptions={stageOptions}
                       projectOptions={projectOptions}
@@ -503,6 +602,7 @@ export default function TaskDashboard({
               {viewMode === "table" && (
                 <TaskTable
                   tasks={filteredTasks}
+                  projects={projects}
                   visibleColumns={visibleColumns}
                   onDeleteTask={onDeleteTask}
                   onEditTask={handleEditRequest}
@@ -526,11 +626,28 @@ export default function TaskDashboard({
                 </section>
               )}
 
-              {viewMode === "calendar" && <CalendarPlaceholder />}
+              {viewMode === "calendar" && (
+                <TaskCalendar
+                  tasks={filteredTasks}
+                  projects={projects}
+                  onTaskUpdate={onUpdateTask}
+                  onCreateTask={onCreateTaskAtDate}
+                  onOpenTaskEditor={handleEditRequest}
+                  onOpenProject={(id) => {
+                    setProjectFilter(String(id));
+                    setMainView("tasks");
+                  }}
+                  onProjectUpdate={onProjectUpdate}
+                  onProjectArchive={onProjectArchive}
+                  onProjectRestore={onProjectRestore}
+                  onProjectDelete={onProjectDelete}
+                />
+              )}
             </>
-          ) : (
+          ) : mainView === "projects" ? (
             <ProjectsView
               projects={projects}
+              tasks={tasks}
               onRefresh={onProjectsRefresh}
               onCreate={onProjectCreate}
               onArchive={onProjectArchive}
@@ -542,7 +659,10 @@ export default function TaskDashboard({
                 setMainView("tasks");
               }}
               onUpdate={onProjectUpdate}
+              onAssignTasks={onBulkAssign}
             />
+          ) : (
+            <UserSettings user={user} onUserChange={onUserChange} onLogout={onLogout} />
           )}
         </main>
       </div>
@@ -557,67 +677,73 @@ export default function TaskDashboard({
           submitting={modalSubmitting}
         />
       )}
-      {projectModalOpen && (
+      {assignModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-          <form
-            onSubmit={handleProjectModalSubmit}
-            className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl space-y-4"
-          >
+          <form onSubmit={handleAssignProjectSubmit} className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-slate-800">Создать проект</h3>
+              <h3 className="text-lg font-semibold text-slate-800">Добавить задачи в проект</h3>
               <button
                 type="button"
-                onClick={() => setProjectModalOpen(false)}
+                onClick={() => setAssignModalOpen(false)}
                 className="rounded-full border border-slate-200 p-1 text-slate-400"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <input
-              value={projectDraft.title}
-              onChange={(e) => setProjectDraft((prev) => ({ ...prev, title: e.target.value }))}
-              placeholder="Название"
-              className="w-full rounded-xl border border-slate-200 px-3 py-2"
-            />
-            <textarea
-              value={projectDraft.description}
-              onChange={(e) => setProjectDraft((prev) => ({ ...prev, description: e.target.value }))}
-              rows={3}
-              placeholder="Описание"
-              className="w-full rounded-xl border border-slate-200 px-3 py-2"
-            />
-            <select
-              value={projectDraft.priority}
-              onChange={(e) => setProjectDraft((prev) => ({ ...prev, priority: e.target.value }))}
-              className="w-full rounded-xl border border-slate-200 px-3 py-2"
-            >
-              <option value="low">Low</option>
-              <option value="medium">Medium</option>
-              <option value="high">High</option>
-              <option value="critical">Critical</option>
-            </select>
-            <label className="flex items-center gap-2 text-sm text-slate-600">
-              <input
-                type="checkbox"
-                checked={reassignAttached}
-                onChange={(e) => setReassignAttached(e.target.checked)}
-              />
-              Перенести задачи из текущих проектов
-            </label>
+            <div className="space-y-3">
+              <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                <input
+                  type="radio"
+                  value="existing"
+                  checked={assignMode === "existing"}
+                  onChange={() => setAssignMode("existing")}
+                  disabled={!projects.length}
+                />
+                Существующий проект
+              </label>
+              <div className="max-h-48 overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50/60 p-2">
+                {projects.length === 0 && <p className="text-sm text-slate-500">Нет проектов</p>}
+                {projects.map((project) => (
+                  <label key={project.id} className="flex items-center gap-2 rounded-xl px-2 py-1 text-sm hover:bg-white">
+                    <input
+                      type="radio"
+                      name="assign-existing-project"
+                      value={project.id}
+                      disabled={assignMode !== "existing"}
+                      checked={assignMode === "existing" && assignSelectedProject === String(project.id)}
+                      onChange={(event) => setAssignSelectedProject(event.target.value)}
+                    />
+                    <span className="text-slate-700">{project.title}</span>
+                  </label>
+                ))}
+              </div>
+              <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                <input type="radio" value="new" checked={assignMode === "new"} onChange={() => setAssignMode("new")} />
+                Создать новый проект…
+              </label>
+              {assignMode === "new" && (
+                <input
+                  value={assignNewProjectTitle}
+                  onChange={(event) => setAssignNewProjectTitle(event.target.value)}
+                  placeholder="Название проекта"
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+                />
+              )}
+            </div>
             <div className="flex items-center justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setProjectModalOpen(false)}
+                onClick={() => setAssignModalOpen(false)}
                 className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
               >
                 Отмена
               </button>
               <button
                 type="submit"
-                disabled={!selectedIds.length || !projectDraft.title.trim()}
+                disabled={assignSubmitting || (assignMode === "existing" && !assignSelectedProject) || (assignMode === "new" && !assignNewProjectTitle.trim())}
                 className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
               >
-                <FolderPlus className="h-4 w-4" /> Создать
+                <FolderPlus className="h-4 w-4" /> Добавить
               </button>
             </div>
           </form>
@@ -629,6 +755,7 @@ export default function TaskDashboard({
 
 export function TaskTable({
   tasks,
+  projects,
   visibleColumns,
   onDeleteTask,
   onEditTask,
@@ -751,10 +878,10 @@ export function TaskTable({
                               Убрать из проекта
                             </button>
                             <button
-                              onClick={() => onBulkAction("new-project")}
+                              onClick={() => onBulkAction("assign-project")}
                               className="block w-full px-4 py-2 text-left text-sm hover:bg-slate-50"
                             >
-                              В новый проект
+                              Добавить в проект
                             </button>
                           </div>
                         )}
@@ -829,7 +956,7 @@ export function TaskTable({
                             )}
                             {visibleColumns.project && (
                               <td className="px-4 py-3">
-                                <ProjectCell project={task.project} />
+                                <ProjectCell project={task.project} projectId={task.project_id} projects={projects} />
                               </td>
                             )}
                             {visibleColumns.created_at && (
@@ -841,7 +968,7 @@ export function TaskTable({
                             )}
                             {visibleColumns.deadline && (
                               <td className="px-4 py-3">
-                                <DeadlineCell deadline={task.deadline} />
+                                <DeadlineCell deadline={task.end_at} />
                               </td>
                             )}
                             <td className="px-4 py-3">
@@ -884,8 +1011,9 @@ export function TaskTable({
   );
 }
 
-function ProjectCell({ project }) {
-  const meta = describeProject(project);
+function ProjectCell({ project, projectId, projects = [] }) {
+  const derivedProject = project || projects.find((item) => item.id === projectId);
+  const meta = describeProject(derivedProject);
   return (
     <span
       className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-slate-200 ${meta.tone}`}
@@ -902,46 +1030,47 @@ function DeadlineCell({ deadline }) {
   return <span className={`text-sm ${meta.tone}`}>{meta.text}</span>;
 }
 
-function ViewDropdown({ viewMode, onChange }) {
-  const [open, setOpen] = useState(false);
-  const options = [
-    { value: "table", label: "Список", icon: ListChecks },
-    { value: "kanban", label: "Kanban", icon: LayoutGrid },
-    { value: "calendar", label: "Календарь", icon: Calendar },
-  ];
-  const containerRef = useRef(null);
-  useOutsideClose(containerRef, () => setOpen(false), open);
+function ViewTabs({ viewMode, onChange }) {
+  const tabsRef = useRef(null);
+  const [underlineStyle, setUnderlineStyle] = useState({ left: 0, width: 0 });
+
+  useEffect(() => {
+    const container = tabsRef.current;
+    if (!container) return;
+    const activeButton = container.querySelector(`button[data-value="${viewMode}"]`);
+    if (!activeButton) return;
+    const rect = activeButton.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    setUnderlineStyle({
+      left: rect.left - containerRect.left,
+      width: rect.width,
+    });
+  }, [viewMode]);
+
   return (
-    <div className="relative" ref={containerRef}>
-      <button
-        onClick={() => setOpen((o) => !o)}
-        className="px-3 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 shadow-sm inline-flex items-center gap-2 text-sm"
-      >
-        Вид
-        <ChevronDown className={`h-4 w-4 transition-transform ${open ? "rotate-180" : ""}`} />
-      </button>
-      {open && (
-        <div className="absolute z-50 mt-2 w-48 rounded-xl bg-white border border-slate-200 shadow-xl shadow-slate-100 p-1">
-          {options.map(({ value, label, icon }) => {
-            const IconComponent = icon;
-            return (
-              <button
-                key={value}
-                onClick={() => {
-                  onChange(value);
-                  setOpen(false);
-                }}
-                className={`w-full text-left px-3 py-2 rounded-lg hover:bg-slate-50 text-sm flex items-center gap-2 ${
-                  viewMode === value ? "bg-slate-50 text-indigo-600" : ""
-                }`}
-              >
-                <IconComponent className="h-4 w-4" />
-                {label}
-              </button>
-            );
-          })}
-        </div>
-      )}
+    <div className="relative w-full overflow-x-auto no-scrollbar py-1">
+      <div ref={tabsRef} className="flex gap-6 relative">
+        {VIEW_OPTIONS.map(({ value, label, icon: Icon }) => {
+          const active = viewMode === value;
+          return (
+            <button
+              key={value}
+              data-value={value}
+              onClick={() => onChange(value)}
+              className={`flex items-center gap-2 whitespace-nowrap rounded-2xl px-3 py-1.5 text-sm font-semibold transition ${
+                active ? "text-slate-900" : "text-slate-400 hover:text-slate-700"
+              }`}
+            >
+              <Icon className={`h-4 w-4 ${active ? "text-slate-900" : "text-slate-400"}`} />
+              {label}
+            </button>
+          );
+        })}
+        <span
+          className="pointer-events-none absolute -bottom-0.5 h-0.5 rounded-full bg-indigo-500 transition-all duration-300"
+          style={{ left: `${underlineStyle.left}px`, width: `${underlineStyle.width}px` }}
+        />
+      </div>
     </div>
   );
 }
@@ -1213,42 +1342,51 @@ function Pill({ children, tone }) {
   );
 }
 
-function UserMenu({ name, initial }) {
+function UserMenu({ name, initial, avatarUrl, onOpenSettings, onLogout }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef(null);
   useOutsideClose(containerRef, () => setOpen(false), open);
   return (
     <div className="relative" ref={containerRef}>
       <button onClick={() => setOpen((o) => !o)} className="flex items-center gap-2">
-        <div className="h-8 w-8 rounded-full bg-gradient-to-br from-indigo-400 to-blue-400 flex items-center justify-center text-white font-medium shadow-md">
-          {initial}
-        </div>
+        {avatarUrl ? (
+          <img
+            src={avatarUrl}
+            alt={name}
+            className="h-9 w-9 rounded-full object-cover ring-2 ring-indigo-100"
+            referrerPolicy="no-referrer"
+          />
+        ) : (
+          <div className="h-9 w-9 rounded-full bg-gradient-to-br from-indigo-400 to-blue-400 flex items-center justify-center text-white font-medium shadow-md">
+            {initial}
+          </div>
+        )}
         <span className="font-medium text-slate-700">{name || "Гость"}</span>
       </button>
       {open && (
         <div className="absolute right-0 mt-2 w-56 rounded-xl bg-white border border-slate-200 shadow-xl shadow-slate-100 p-1">
-          <button className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-50">
-            Профиль
-          </button>
-          <button className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-50">
+          <button
+            onClick={() => {
+              onOpenSettings?.();
+              setOpen(false);
+            }}
+            className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-50"
+          >
             Настройки
           </button>
           <div className="my-1 h-px bg-slate-100" />
-          <button className="w-full text-left px-3 py-2 rounded-lg hover:bg-rose-50 text-rose-600">
+          <button
+            onClick={() => {
+              onLogout?.();
+              setOpen(false);
+            }}
+            className="w-full text-left px-3 py-2 rounded-lg hover:bg-rose-50 text-rose-600"
+          >
             Выйти
           </button>
         </div>
       )}
     </div>
-  );
-}
-
-function CalendarPlaceholder() {
-  return (
-    <section className="rounded-2xl bg-white border border-slate-200 shadow-xl shadow-slate-100 p-8 text-center text-slate-500">
-      <p className="text-lg font-medium">Календарный вид появится позже</p>
-      <p className="text-sm mt-2">Сейчас можно работать в режиме списка или Kanban.</p>
-    </section>
   );
 }
 
@@ -1265,7 +1403,7 @@ function getSortValue(task, key) {
     case "created_at":
       return task.created_at ? new Date(task.created_at).getTime() : 0;
     case "deadline":
-      return task.deadline ? new Date(task.deadline).getTime() : Number.MAX_SAFE_INTEGER;
+      return task.end_at ? new Date(task.end_at).getTime() : Number.MAX_SAFE_INTEGER;
     case "title":
     default:
       return (task.title || "").toLowerCase();

@@ -73,6 +73,8 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		Email:    email,
 		Username: username,
 		Password: hash,
+		Language: "en",
+		Theme:    "light",
 	}
 
 	// Сохранение

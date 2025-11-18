@@ -48,6 +48,7 @@ func Connect() *gorm.DB {
 	); err != nil {
 		log.Fatalf("AutoMigrate error: %v", err)
 	}
+	migrateDeadlineColumn(db)
 
 	// пул соединений
 	sqlDB, _ := db.DB()
@@ -56,4 +57,28 @@ func Connect() *gorm.DB {
 	sqlDB.SetConnMaxLifetime(30 * time.Minute)
 
 	return db
+}
+
+func migrateDeadlineColumn(db *gorm.DB) {
+	if db == nil {
+		return
+	}
+	if !db.Migrator().HasColumn(&models.Task{}, "deadline") {
+		return
+	}
+	if !db.Migrator().HasColumn(&models.Task{}, "end_at") {
+		if err := db.Migrator().AddColumn(&models.Task{}, "EndAt"); err != nil {
+			log.Printf("failed to add end_at column: %v", err)
+			return
+		}
+	}
+	if err := db.Exec("UPDATE tasks SET end_at = deadline WHERE deadline IS NOT NULL AND (end_at IS NULL OR end_at = deadline)").Error; err != nil {
+		log.Printf("failed to copy legacy deadline to end_at: %v", err)
+	}
+	type legacyTask struct {
+		Deadline *time.Time
+	}
+	if err := db.Migrator().DropColumn(&legacyTask{}, "deadline"); err != nil {
+		log.Printf("failed to drop legacy deadline column: %v", err)
+	}
 }

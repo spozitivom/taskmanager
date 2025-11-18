@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   ArrowRight,
   Archive,
@@ -20,6 +21,7 @@ const PROJECT_STATUS_OPTIONS = [
 
 export default function ProjectsView({
   projects,
+  tasks = [],
   onRefresh,
   onCreate,
   onArchive,
@@ -28,6 +30,7 @@ export default function ProjectsView({
   onToggleCompleted,
   onOpenProject,
   onUpdate,
+  onAssignTasks,
 }) {
   const [form, setForm] = useState({ title: "", description: "", priority: "medium", deadline: "" });
   const [submitting, setSubmitting] = useState(false);
@@ -195,21 +198,28 @@ export default function ProjectsView({
       {editing && (
         <ProjectEditorModal
           project={editing}
+          tasks={tasks}
           submitting={editingSubmitting}
           onClose={() => setEditing(null)}
           onSubmit={handleUpdate}
+          onAssignTasks={onAssignTasks}
         />
       )}
     </div>
   );
 }
 
-function ProjectEditorModal({ project, onClose, onSubmit, submitting }) {
+function ProjectEditorModal({ project, tasks = [], onClose, onSubmit, submitting, onAssignTasks }) {
   const [form, setForm] = useState(getInitialProjectState(project));
+  const [selectedTaskIds, setSelectedTaskIds] = useState([]);
+  const [assigning, setAssigning] = useState(false);
 
   useEffect(() => {
     setForm(getInitialProjectState(project));
+    setSelectedTaskIds([]);
   }, [project]);
+
+  const unassignedTasks = useMemo(() => tasks.filter((task) => !task.project_id), [tasks]);
 
   const handleChange = (field) => (event) => {
     setForm((prev) => ({ ...prev, [field]: event.target.value }));
@@ -226,9 +236,30 @@ function ProjectEditorModal({ project, onClose, onSubmit, submitting }) {
     });
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className="w-full max-w-lg rounded-3xl border border-slate-200 bg-white shadow-2xl">
+  const toggleTaskSelection = (taskId) => {
+    setSelectedTaskIds((prev) =>
+      prev.includes(taskId) ? prev.filter((id) => id !== taskId) : [...prev, taskId]
+    );
+  };
+
+  const handleAssignTasks = async () => {
+    if (!project?.id || !selectedTaskIds.length) {
+      return;
+    }
+    try {
+      setAssigning(true);
+      await onAssignTasks?.({ ids: selectedTaskIds, projectId: project.id });
+      setSelectedTaskIds([]);
+    } catch (err) {
+      console.error("Не удалось добавить задачи в проект", err);
+    } finally {
+      setAssigning(false);
+    }
+  };
+
+  const modalBody = (
+    <div className="fixed inset-0 z-[1200] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-2xl rounded-3xl border border-slate-200 bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
           <h3 className="text-lg font-semibold text-slate-800">Редактировать проект</h3>
           <button
@@ -290,6 +321,50 @@ function ProjectEditorModal({ project, onClose, onSubmit, submitting }) {
             </Field>
           </div>
 
+          {project?.id && (
+            <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-sm font-semibold text-slate-700">Задачи без проекта</p>
+                  <p className="text-xs text-slate-500">Добавьте их в текущий проект</p>
+                </div>
+                <button
+                  type="button"
+                  disabled={assigning || !selectedTaskIds.length}
+                  onClick={handleAssignTasks}
+                  className="rounded-full border border-indigo-200 bg-indigo-50 px-4 py-1.5 text-sm font-semibold text-indigo-600 disabled:opacity-50"
+                >
+                  {assigning ? "Добавляем..." : "Добавить в проект"}
+                </button>
+              </div>
+              {unassignedTasks.length === 0 ? (
+                <p className="text-sm text-slate-500">Нет задач без проекта.</p>
+              ) : (
+                <div className="max-h-56 space-y-2 overflow-y-auto">
+                  {unassignedTasks.map((task) => (
+                    <label
+                      key={task.id}
+                      className="flex cursor-pointer items-start gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm hover:border-indigo-200"
+                    >
+                      <input
+                        type="checkbox"
+                        className="mt-1"
+                        checked={selectedTaskIds.includes(task.id)}
+                        onChange={() => toggleTaskSelection(task.id)}
+                      />
+                      <div>
+                        <p className="font-semibold text-slate-800">{task.title}</p>
+                        {task.description && (
+                          <p className="text-xs text-slate-500 line-clamp-2">{task.description}</p>
+                        )}
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="flex items-center justify-end gap-2 border-t border-slate-100 pt-4">
             <button
               type="button"
@@ -311,6 +386,11 @@ function ProjectEditorModal({ project, onClose, onSubmit, submitting }) {
       </div>
     </div>
   );
+
+  if (typeof document === "undefined") {
+    return modalBody;
+  }
+  return createPortal(modalBody, document.body);
 }
 
 function Field({ label, children }) {
