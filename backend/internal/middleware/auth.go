@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -54,6 +55,10 @@ func Auth() gin.HandlerFunc {
 		// --- 4️⃣ Извлекаем полезные данные ---
 		if sub, ok := claims["sub"].(float64); ok {
 			c.Set("userID", uint(sub))
+		} else if subStr, ok := claims["sub"].(string); ok {
+			if id, err := strconv.ParseUint(subStr, 10, 64); err == nil && id > 0 {
+				c.Set("userID", uint(id))
+			}
 		}
 		if role, ok := claims["role"].(string); ok {
 			c.Set("role", role)

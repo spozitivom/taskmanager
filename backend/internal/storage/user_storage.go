@@ -20,3 +20,11 @@ func (s *UserStorage) GetByID(id uint) (*models.User, error) {
 	}
 	return &user, nil
 }
+
+func (s *UserStorage) Update(user *models.User) error {
+	return s.db.Save(user).Error
+}
+
+func (s *UserStorage) DeleteByID(id uint) error {
+	return s.db.Unscoped().Delete(&models.User{}, id).Error
+}

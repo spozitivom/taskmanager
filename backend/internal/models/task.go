@@ -64,10 +64,13 @@ type Task struct {
 	Title       string `gorm:"type:varchar(255);not null" json:"title"`
 	Description string `gorm:"type:text" json:"description"`
 
-	Status         string `gorm:"type:varchar(32);default:todo;index:idx_tasks_status" json:"status"`
-	PreviousStatus string `gorm:"type:varchar(32);default:'';" json:"previous_status,omitempty"`
-	Priority       string `gorm:"type:varchar(16);default:medium;index:idx_tasks_priority" json:"priority"`
-	Stage          string `gorm:"type:varchar(64);default:todo;index:idx_tasks_stage" json:"stage"`
+	Status         string     `gorm:"type:varchar(32);default:todo;index:idx_tasks_status" json:"status"`
+	PreviousStatus string     `gorm:"type:varchar(32);default:'';" json:"previous_status,omitempty"`
+	Priority       string     `gorm:"type:varchar(16);default:medium;index:idx_tasks_priority" json:"priority"`
+	Stage          string     `gorm:"type:varchar(64);default:todo;index:idx_tasks_stage" json:"stage"`
+	StartAt        *time.Time `json:"start_at,omitempty"`
+	EndAt          *time.Time `json:"end_at,omitempty"`
+	AllDay         bool       `json:"all_day"`
 
 	ProjectID *uint    `gorm:"index" json:"project_id,omitempty"`
 	Project   *Project `json:"project,omitempty"`

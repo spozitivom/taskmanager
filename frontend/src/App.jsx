@@ -16,25 +16,10 @@ export default function App() {
   const [password, setPassword] = useState("123456");
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      setLoading(false);
-      return;
-    }
-    api
-      .getTasks()
-      .then(() => setIsLoggedIn(true))
-      .catch(() => {
-        localStorage.removeItem("token");
-        setIsLoggedIn(false);
-      })
-      .finally(() => setLoading(false));
-  }, []);
+  const [user, setUser] = useState(null);
 
   const fetchProjects = useCallback(() => {
-    api
+    return api
       .getProjects(false)
       .then(setProjects)
       .catch((err) => console.error("Ошибка загрузки проектов:", err.message));
@@ -52,11 +37,34 @@ export default function App() {
       params.append("project_id", projectFilter);
     }
 
-    api
+    return api
       .getTasks(params.toString())
       .then(setTasks)
       .catch((err) => console.error("Ошибка загрузки задач:", err.message));
   }, [sort, status, priority, stage, projectFilter]);
+
+  const bootstrap = useCallback(async () => {
+    setLoading(true);
+    try {
+      const profile = await api.getProfile();
+      setUser(profile);
+      setIsLoggedIn(true);
+    } catch (err) {
+      localStorage.removeItem("token");
+      setIsLoggedIn(false);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!token) {
+      setLoading(false);
+      return;
+    }
+    bootstrap();
+  }, [bootstrap]);
 
   useEffect(() => {
     if (isLoggedIn) {
@@ -72,13 +80,19 @@ export default function App() {
     }
     try {
       await api.login(identifier, password);
-      setIsLoggedIn(true);
-      fetchTasks();
-      fetchProjects();
+      await bootstrap();
     } catch (err) {
       console.error("Ошибка логина:", err.message);
       alert("Неверный логин или пароль");
     }
+  };
+
+  const handleLogout = () => {
+    api.logout();
+    setIsLoggedIn(false);
+    setTasks([]);
+    setProjects([]);
+    setUser(null);
   };
 
   const addTask = () => {
@@ -92,12 +106,49 @@ export default function App() {
         priority: "medium",
         stage: "todo",
         project_id: projectId,
+        start_at: null,
+        end_at: null,
+        all_day: false,
       })
       .then((t) => {
         setTasks((prev) => [t, ...prev]);
         setTitle("");
       })
       .catch((err) => console.error("Ошибка добавления задачи:", err.message));
+  };
+
+  const createTaskAtDate = async ({ title, date, projectId }) => {
+    if (!title?.trim()) {
+      return null;
+    }
+    const resolvedProjectId =
+      projectId !== undefined
+        ? projectId
+        : projectFilter && projectFilter !== "none"
+        ? Number(projectFilter)
+        : null;
+
+    const startAt = date ? new Date(`${date}T00:00:00Z`).toISOString() : null;
+    const payload = {
+      title: title.trim(),
+      description: "",
+      status: "todo",
+      priority: "medium",
+      stage: "todo",
+      project_id: resolvedProjectId,
+      start_at: startAt,
+      end_at: startAt,
+      all_day: Boolean(startAt),
+    };
+
+    try {
+      const created = await api.createTask(payload);
+      setTasks((prev) => [created, ...prev]);
+      return created;
+    } catch (err) {
+      console.error("Ошибка добавления задачи из календаря:", err.message);
+      throw err;
+    }
   };
 
   const updateTaskFields = (id, data) =>
@@ -134,29 +185,32 @@ export default function App() {
       project_id: projectId ?? null,
       reassign_attached: Boolean(reassignAttached),
     });
-    fetchTasks();
-  };
-
-  const createProjectFromTasks = async ({ project, ids, reassignAttached }) => {
-    await api.createProjectFromTasks({
-      project: {
-        title: project.title,
-        description: project.description,
-        status: "active",
-        priority: project.priority || "medium",
-      },
-      task_ids: ids,
-      reassign_attached: Boolean(reassignAttached),
-    });
-    fetchProjects();
-    fetchTasks();
+    await fetchTasks();
+    try {
+      const params = new URLSearchParams();
+      if (sort) params.append("sort", sort);
+      if (status) params.append("status", status);
+      if (priority) params.append("priority", priority);
+      if (stage) params.append("stage", stage);
+      if (projectFilter === "none") {
+        params.append("project_id", 0);
+      } else if (projectFilter) {
+        params.append("project_id", projectFilter);
+      }
+      const updated = await api.getTasks(params.toString());
+      setTasks(updated);
+    } catch (error) {
+      console.error("Не удалось обновить список задач:", error);
+    }
   };
 
   const projectActions = useMemo(
     () => ({
       create: async (payload) => {
-        await api.createProject(payload);
+        const created = await api.createProject(payload);
         fetchProjects();
+        fetchTasks();
+        return created;
       },
       archive: async (id) => {
         await api.archiveProject(id);
@@ -185,6 +239,10 @@ export default function App() {
     }),
     [fetchProjects, fetchTasks]
   );
+
+  const handleUserChange = (payload) => {
+    setUser(payload);
+  };
 
   if (loading) {
     return <div className="mx-auto max-w-3xl p-6">Проверка авторизации...</div>;
@@ -215,10 +273,10 @@ export default function App() {
   }
 
   return (
-    <TaskDashboard
-      tasks={tasks}
-      setTasks={setTasks}
-      title={title}
+      <TaskDashboard
+        tasks={tasks}
+        setTasks={setTasks}
+        title={title}
       setTitle={setTitle}
       onAddTask={addTask}
       onDeleteTask={remove}
@@ -237,8 +295,10 @@ export default function App() {
       onBulkDelete={bulkDelete}
       onBulkComplete={bulkComplete}
       onBulkAssign={bulkAssign}
-      onCreateProjectFromTasks={createProjectFromTasks}
-      identifier={identifier}
+      onCreateTaskAtDate={createTaskAtDate}
+      user={user}
+      onUserChange={handleUserChange}
+      onLogout={handleLogout}
       onProjectCreate={projectActions.create}
       onProjectArchive={projectActions.archive}
       onProjectRestore={projectActions.restore}

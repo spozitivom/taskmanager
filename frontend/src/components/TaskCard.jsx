@@ -39,7 +39,7 @@ export default function TaskCard({ task, setTasks, onEditTask }) {
     ? new Date(task.created_at).toLocaleDateString()
     : "—";
   const projectMeta = describeProject(task.project);
-  const deadlineMeta = formatDeadline(task.deadline);
+const deadlineMeta = formatDeadline(task.end_at);
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:shadow-md">

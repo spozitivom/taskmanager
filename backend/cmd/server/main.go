@@ -29,8 +29,10 @@ func main() {
 	projectStorage := storage.NewProjectStorage(db)
 	taskService := services.NewTaskService(taskStorage)
 	projectService := services.NewProjectService(projectStorage, taskStorage, userStorage)
+	userService := services.NewUserService(db, userStorage, projectStorage, taskStorage)
 	taskHandler := handlers.NewTaskHandler(taskService, projectService)
 	projectHandler := handlers.NewProjectHandler(projectService)
+	userHandler := handlers.NewUserHandler(userService)
 
 	authHandler := &handlers.AuthHandler{DB: db}
 
@@ -47,6 +49,7 @@ func main() {
 	// Защищённые маршруты.
 	taskHandler.RegisterRoutes(router)
 	projectHandler.RegisterRoutes(router)
+	userHandler.RegisterRoutes(router)
 
 	// Запускаем сервер.
 	port := os.Getenv("PORT")

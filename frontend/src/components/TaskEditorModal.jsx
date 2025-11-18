@@ -204,11 +204,12 @@ function getInitialState(task) {
     priority: task.priority || "medium",
     stage: task.stage || "",
     project_id: task.project_id ? String(task.project_id) : "",
-    deadline: task.deadline ? task.deadline.slice(0, 10) : "",
+    deadline: task.end_at ? task.end_at.slice(0, 10) : "",
   };
 }
 
 function transformForm(form) {
+  const dateISO = form.deadline ? new Date(`${form.deadline}T00:00:00Z`).toISOString() : null;
   return {
     title: form.title,
     description: form.description,
@@ -216,6 +217,7 @@ function transformForm(form) {
     priority: form.priority,
     stage: form.stage,
     project_id: form.project_id ? Number(form.project_id) : null,
-    deadline: form.deadline ? new Date(`${form.deadline}T00:00:00Z`).toISOString() : null,
+    end_at: dateISO,
+    all_day: Boolean(dateISO),
   };
 }

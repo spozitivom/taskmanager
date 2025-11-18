@@ -3,6 +3,7 @@ package services
 import (
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/spozitivom/taskmanager/internal/models"
 	"github.com/spozitivom/taskmanager/internal/storage"
@@ -55,6 +56,9 @@ func (s *TaskService) CreateTask(task *models.Task) error {
 		return err
 	}
 	task.Stage = stage
+	if err := normalizeTaskSchedule(task); err != nil {
+		return err
+	}
 	// Completion статус по умолчанию — активный (todo), additional fields заполняются ниже.
 	return s.storage.Create(task)
 }
@@ -86,6 +90,9 @@ func (s *TaskService) PatchTask(id uint, patch models.TaskPatch) (*models.Task, 
 		return nil, err
 	}
 	if task.Status, err = models.NormalizeTaskStatus(task.Status); err != nil {
+		return nil, err
+	}
+	if err := normalizeTaskSchedule(task); err != nil {
 		return nil, err
 	}
 
@@ -134,4 +141,39 @@ func (s *TaskService) UnassignFromProject(ids []uint) error {
 		tasks[i].ProjectID = nil
 	}
 	return s.storage.SaveAll(tasks)
+}
+
+func normalizeTaskSchedule(task *models.Task) error {
+	if task.StartAt != nil && task.EndAt != nil {
+		if task.EndAt.Before(*task.StartAt) {
+			return errors.New("end_at must be greater than or equal to start_at")
+		}
+	}
+	if task.StartAt == nil && task.EndAt != nil {
+		start := *task.EndAt
+		task.StartAt = &start
+	}
+	if task.EndAt == nil && task.StartAt != nil {
+		end := *task.StartAt
+		task.EndAt = &end
+	}
+	if task.AllDay {
+		if task.StartAt != nil {
+			start := startOfDayUTC(*task.StartAt)
+			task.StartAt = &start
+		}
+		if task.EndAt != nil {
+			end := endOfDayUTC(*task.EndAt)
+			task.EndAt = &end
+		}
+	}
+	return nil
+}
+
+func startOfDayUTC(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
+}
+
+func endOfDayUTC(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), 23, 59, 59, int(time.Second-time.Nanosecond), time.UTC)
 }
